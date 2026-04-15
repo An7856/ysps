@@ -664,7 +664,8 @@ async function forwardataudp(udpChunk, webSocket, respHeader) {
 
 async function socks5Connect(targetHost, targetPort, initialData, proxyConf) {
 	const { username, password, hostname, port } = proxyConf;
-	const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
+	const socket = await connectWithTimeout(hostname, port, 3000).catch(e => { throw new Error(`SOCKS5 proxy connection failed: ${e.message}`); });
+	const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
 	try {
 		const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
 		await writer.write(authMethods);
@@ -697,7 +698,7 @@ async function socks5Connect(targetHost, targetPort, initialData, proxyConf) {
 
 async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = false, proxyConf) {
 	const { username, password, hostname, port } = proxyConf;
-	const socket = HTTPS代理 ? connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: false }) : connect({ hostname, port });
+	const socket = await connectWithTimeout(hostname, port, 3000).catch(e => { throw new Error(`HTTP proxy connection failed: ${e.message}`); });
 	const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
 	const encoder = new TextEncoder(), decoder = new TextDecoder();
 	try {
