@@ -525,55 +525,28 @@ async function connectWithTimeout(host, port, timeoutMs) {
     }
 }
 
-async function universalConnectWithFailover() {
+async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
     let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
-    const PRIMARY_TIMEOUT = 3000;
-    const BACKUP_TIMEOUT = 2000;
-    const primaryIP = valid[0];
-    const backupIPs = valid.slice(1);
+    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
+    if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
+    const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
     const now = Date.now();
-    for (const [ip, time] of FAILED_IP_CACHE) {
-        if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
-    }
-    if (FAILED_IP_CACHE.size > 500) {
-        FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
-    }
-    if (!FAILED_IP_CACHE.has(primaryIP)) {
-        try {
-            const { hostname, port } = IPParser.parseConnectionAddress(primaryIP);
-            const socket = await connectWithTimeout(hostname, port, PRIMARY_TIMEOUT);
-            return { socket, server: { hostname, port, original: primaryIP } };
-        } catch (e) {
-            FAILED_IP_CACHE.set(primaryIP, Date.now());
+    for (const [ip, time] of FAILED_IP_CACHE) { if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip); }
+    if (FAILED_IP_CACHE.size > 500) FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
+    for (let i = 0; i < resolvedList.length; i++) {
+        const [hostname, port] = resolvedList[i];
+        const cacheKey = `${hostname}:${port}`;
+        if (!FAILED_IP_CACHE.has(cacheKey)) {
+             try {
+                const socket = await connectWithTimeout(hostname, port, i === 0 ? PRIMARY_TIMEOUT : BACKUP_TIMEOUT);
+                return { socket, server: { hostname, port, original: cacheKey } };
+            } catch (e) {
+                FAILED_IP_CACHE.set(cacheKey, Date.now());
+            }
         }
     }
-    let candidates = backupIPs.filter(ip => !FAILED_IP_CACHE.has(ip));
-    if (candidates.length === 0) {
-        if (backupIPs.length > 0) {
-            FAILED_IP_CACHE.clear();
-            FAILED_IP_CACHE.set(primaryIP, Date.now());
-            candidates = backupIPs;
-        } else {
-             throw new Error(`主IP连接失败，且无可用备选IP`);
-        }
-    }
-    for (let i = candidates.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-    }
-    let lastError = null;
-    for (const s of candidates) {
-        const { hostname, port } = IPParser.parseConnectionAddress(s);
-        try {
-            const socket = await connectWithTimeout(hostname, port, BACKUP_TIMEOUT);
-            return { socket, server: { hostname, port, original: s } };
-        } catch (err) {
-            FAILED_IP_CACHE.set(s, Date.now());
-            lastError = err;
-        }
-    }
-    throw new Error(`所有节点连接失败 (主节点+备选节点)，最后错误: ${lastError?.message}`);
+    throw new Error(`所有节点连接失败`);
 }
 
 function safeCloseWebSocket(socket) { try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) { } }
@@ -770,62 +743,105 @@ async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = fa
 }
 
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
-	const 连接超时毫秒 = 3000;
-	let 已通过代理发送首包 = false;
     const proxyEnabled = proxyCtx?.enableType || (cc?.proxyConfig?.enabled ? cc?.proxyConfig?.type : null);
     const proxyGlobal = proxyCtx?.global ?? cc?.proxyConfig?.global;
     const proxyAddress = proxyCtx?.parsedAddress;
 
-	async function 等待连接建立(remoteSock, timeoutMs = 连接超时毫秒) {
-		await Promise.race([ remoteSock.opened, new Promise((_, reject) => setTimeout(() => reject(new Error('连接超时')), timeoutMs)) ]);
-	}
-	async function connectDirect(address, port, data = null, fallback = true) {
-		let remoteSock;
-        if(fallback) {
+    const tryDirect = async (data) => {
+        try {
+            const s = connect({ hostname: host, port: portNum });
+            await Promise.race([ s.opened, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000)) ]);
+            if (data && data.byteLength > 0) {
+                const w = s.writable.getWriter();
+                await w.write(data);
+                w.releaseLock();
+            }
+            return s;
+        } catch (e) { return null; }
+    };
+
+    const tryProxy = async (data) => {
+        if (!proxyEnabled || !proxyAddress) return null;
+        try {
+            let s;
+            if (proxyEnabled === 'socks5') s = await socks5Connect(host, portNum, data, proxyAddress);
+            else if (proxyEnabled === 'http') s = await httpConnect(host, portNum, data, false, proxyAddress);
+            else if (proxyEnabled === 'https') s = await httpConnect(host, portNum, data, true, proxyAddress);
+            return s;
+        } catch (e) { return null; }
+    };
+
+    const tryReverseFDC = async (data) => {
+        try {
             const { socket } = await universalConnectWithFailover();
-            remoteSock = socket;
+            if (data && data.byteLength > 0) {
+                const w = socket.writable.getWriter();
+                await w.write(data);
+                w.releaseLock();
+            }
+            return socket;
+        } catch (e) { return null; }
+    };
+
+    const establish3LayerConnection = async (data) => {
+        let sock = null;
+        if (proxyEnabled && proxyGlobal) {
+            sock = await tryProxy(data);
+            if (!sock) sock = await tryDirect(data);
         } else {
-            remoteSock = connect({ hostname: address, port: port });
-            await 等待连接建立(remoteSock);
+            sock = await tryDirect(data);
+            if (!sock && proxyEnabled) sock = await tryProxy(data);
         }
-		if (data && data.byteLength > 0) {
-			const writer = remoteSock.writable.getWriter();
-			await writer.write(data);
-			writer.releaseLock();
-		}
-		return remoteSock;
-	}
-	async function connecttoPry(允许发送首包 = true) {
-		if (remoteConnWrapper.connectingPromise) { await remoteConnWrapper.connectingPromise; return; }
-		const 本次发送首包 = 允许发送首包 && !已通过代理发送首包 && rawData && rawData.byteLength > 0;
-		const 本次首包数据 = 本次发送首包 ? rawData : null;
-		const 当前连接任务 = (async () => {
-			let newSocket;
-			if (proxyEnabled === 'socks5') newSocket = await socks5Connect(host, portNum, 本次首包数据, proxyAddress);
-			else if (proxyEnabled === 'http') newSocket = await httpConnect(host, portNum, 本次首包数据, false, proxyAddress);
-            else if (proxyEnabled === 'https') newSocket = await httpConnect(host, portNum, 本次首包数据, true, proxyAddress);
-			else newSocket = await connectDirect(host, portNum, 本次首包数据, true);
-			if (本次发送首包) 已通过代理发送首包 = true;
-			remoteConnWrapper.socket = newSocket;
-			newSocket.closed.catch(() => { }).finally(() => safeCloseSocket(ws));
-			connectStreams(newSocket, ws, respHeader, null);
-		})();
-		remoteConnWrapper.connectingPromise = 当前连接任务;
-		try { await 当前连接任务; } finally { if (remoteConnWrapper.connectingPromise === 当前连接任务) remoteConnWrapper.connectingPromise = null; }
-	}
-	remoteConnWrapper.retryConnect = async () => connecttoPry(!已通过代理发送首包);
-	if (proxyEnabled && proxyGlobal) {
-		try { await connecttoPry(); } catch (err) { throw err; }
-	} else {
-		try {
-			const initialSocket = await connectDirect(host, portNum, rawData, false);
-			remoteConnWrapper.socket = initialSocket;
-			connectStreams(initialSocket, ws, respHeader, async () => {
-				if (remoteConnWrapper.socket !== initialSocket) return;
-				await connecttoPry();
-			});
-		} catch (err) { await connecttoPry(); }
-	}
+        if (!sock) {
+            sock = await tryReverseFDC(data);
+        }
+        if (!sock) {
+            throw new Error(`连接失败: 直连/代理/反代三层均不可用. 目标: ${host}:${portNum}`);
+        }
+        return sock;
+    };
+
+    if (remoteConnWrapper.connectingPromise) {
+        await remoteConnWrapper.connectingPromise;
+        return;
+    }
+
+    const connectTask = (async () => {
+        const newSocket = await establish3LayerConnection(rawData);
+        remoteConnWrapper.socket = newSocket;
+        if (newSocket.closed) newSocket.closed.catch(() => {}).finally(() => safeCloseSocket(ws));
+        
+        connectStreams(newSocket, ws, respHeader, async () => {
+            if (remoteConnWrapper.socket !== newSocket) return;
+            if (typeof remoteConnWrapper.retryConnect === 'function') {
+                await remoteConnWrapper.retryConnect();
+            }
+        });
+    })();
+
+    remoteConnWrapper.connectingPromise = connectTask;
+    remoteConnWrapper.retryConnect = async () => {
+        if (remoteConnWrapper.connectingPromise) {
+            await remoteConnWrapper.connectingPromise;
+            return;
+        }
+        const retryTask = (async () => {
+            const newSocket = await establish3LayerConnection(null);
+            remoteConnWrapper.socket = newSocket;
+            if (newSocket.closed) newSocket.closed.catch(() => {}).finally(() => safeCloseSocket(ws));
+            connectStreams(newSocket, ws, null, null);
+        })();
+        remoteConnWrapper.connectingPromise = retryTask;
+        try { await retryTask; } finally { remoteConnWrapper.connectingPromise = null; }
+    };
+
+    try { 
+        await connectTask; 
+    } finally { 
+        if (remoteConnWrapper.connectingPromise === connectTask) {
+            remoteConnWrapper.connectingPromise = null; 
+        }
+    }
 }
 
 async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
@@ -2197,9 +2213,9 @@ async function saveConfig(e) {
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP:端口#备注</code><br>用于 Web 伪装和生成订阅链接。</span></div>
                     </div>
                     <div class="form-group">
-                        <label>反代 IP / 域名 (中转连接)</label>
+                        <label>反代 IP / 域名 / TXT记录 (中转连接)</label>
                         <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。</span></div>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。支持 .william 结尾的动态TXT记录。</span></div>
                     </div>
                 </div>
             </div>
@@ -2342,9 +2358,9 @@ async function saveConfig(e) {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>DNS DoH 地址 (UDP 53 / ECH 配置动态提取)</label>
+                    <label>DNS DoH 地址 (UDP 53 转发)</label>
                     <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
-                    <div class="help-text"><i class="fas fa-server"></i><span>必须是支持 application/dns-message 的 DoH 地址，底层强依赖。</span></div>
+                    <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求。</span></div>
                 </div>
             </div>
 
@@ -2626,10 +2642,15 @@ async function zxyx(request, env, txt = 'ADD.txt') {
                 let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
                 if (!currentConfig) {
                     currentConfig = {
-                        yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns,
+                        yx: yx,
+                        fdc: fdc,
+                        uid: uid,
+                        dyhd: dyhd,
+                        dypz: dypz,
+                        dns: dns,
                         protocolConfig: { ev, et, tp },
-                        cfConfig: {}, proxyConfig: {},
-                        transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' },
+                        cfConfig: {},
+                        proxyConfig: {},
                         klp: 'login'
                     };
                 }
