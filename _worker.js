@@ -525,29 +525,55 @@ async function connectWithTimeout(host, port, timeoutMs) {
     }
 }
 
-async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
+async function universalConnectWithFailover() {
     let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
-    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
-    if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
-    const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
+    const PRIMARY_TIMEOUT = 3000;
+    const BACKUP_TIMEOUT = 2000;
+    const primaryIP = valid[0];
+    const backupIPs = valid.slice(1);
     const now = Date.now();
-    for (const [ip, time] of FAILED_IP_CACHE) { if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip); }
-    if (FAILED_IP_CACHE.size > 500) FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
-    
-    for (let i = 0; i < resolvedList.length; i++) {
-        const [hostname, port] = resolvedList[i];
-        const cacheKey = `${hostname}:${port}`;
-        if (!FAILED_IP_CACHE.has(cacheKey)) {
-             try {
-                const socket = await connectWithTimeout(hostname, port, i === 0 ? PRIMARY_TIMEOUT : BACKUP_TIMEOUT);
-                return { socket, server: { hostname, port, original: cacheKey } };
-            } catch (e) {
-                FAILED_IP_CACHE.set(cacheKey, Date.now());
-            }
+    for (const [ip, time] of FAILED_IP_CACHE) {
+        if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
+    }
+    if (FAILED_IP_CACHE.size > 500) {
+        FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
+    }
+    if (!FAILED_IP_CACHE.has(primaryIP)) {
+        try {
+            const { hostname, port } = IPParser.parseConnectionAddress(primaryIP);
+            const socket = await connectWithTimeout(hostname, port, PRIMARY_TIMEOUT);
+            return { socket, server: { hostname, port, original: primaryIP } };
+        } catch (e) {
+            FAILED_IP_CACHE.set(primaryIP, Date.now());
         }
     }
-    throw new Error(`所有节点连接失败`);
+    let candidates = backupIPs.filter(ip => !FAILED_IP_CACHE.has(ip));
+    if (candidates.length === 0) {
+        if (backupIPs.length > 0) {
+            FAILED_IP_CACHE.clear();
+            FAILED_IP_CACHE.set(primaryIP, Date.now());
+            candidates = backupIPs;
+        } else {
+             throw new Error(`主IP连接失败，且无可用备选IP`);
+        }
+    }
+    for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    let lastError = null;
+    for (const s of candidates) {
+        const { hostname, port } = IPParser.parseConnectionAddress(s);
+        try {
+            const socket = await connectWithTimeout(hostname, port, BACKUP_TIMEOUT);
+            return { socket, server: { hostname, port, original: s } };
+        } catch (err) {
+            FAILED_IP_CACHE.set(s, Date.now());
+            lastError = err;
+        }
+    }
+    throw new Error(`所有节点连接失败 (主节点+备选节点)，最后错误: ${lastError?.message}`);
 }
 
 function safeCloseWebSocket(socket) { try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) { } }
@@ -756,7 +782,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 	async function connectDirect(address, port, data = null, fallback = true) {
 		let remoteSock;
         if(fallback) {
-            const { socket } = await universalConnectWithFailover(address, port);
+            const { socket } = await universalConnectWithFailover();
             remoteSock = socket;
         } else {
             remoteSock = connect({ hostname: address, port: port });
@@ -2171,9 +2197,9 @@ async function saveConfig(e) {
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP:端口#备注</code><br>用于 Web 伪装和生成订阅链接。</span></div>
                     </div>
                     <div class="form-group">
-                        <label>反代 IP / 域名 / TXT记录 (中转连接)</label>
+                        <label>反代 IP / 域名 (中转连接)</label>
                         <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code> 或 <code>.william</code> 结尾的TXT记录<br>用于 Worker 实际回源连接。</span></div>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。</span></div>
                     </div>
                 </div>
             </div>
@@ -2205,7 +2231,7 @@ async function saveConfig(e) {
                     <div class="form-group">
                         <label>ECH SNI (伪装外壳)</label>
                         <input type="text" name="trans_ech_sni" value="${cc?.transConfig?.ech_sni||''}" placeholder="留空自动使用当前订阅域名">
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>用于 ECH 配置提取，提升抗封锁能力。</span></div>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>用于 ECH 配置动态提取，提升抗封锁能力。</span></div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -2316,7 +2342,7 @@ async function saveConfig(e) {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>DNS DoH 地址 (UDP 53 / 动态解析 / ECH 配置拉取)</label>
+                    <label>DNS DoH 地址 (UDP 53 / ECH 配置动态提取)</label>
                     <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
                     <div class="help-text"><i class="fas fa-server"></i><span>必须是支持 application/dns-message 的 DoH 地址，底层强依赖。</span></div>
                 </div>
