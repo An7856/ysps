@@ -1,5 +1,4 @@
 import { connect } from 'cloudflare:sockets';
-
 let p = 'dylj';
 let fdc = [''];
 let uid = '';
@@ -23,7 +22,6 @@ let globalTimeout = 8000;
 let cachedUsage = null;
 let lastUsageTime = 0;
 let cachedAdminPwd = null;
-
 const FAILED_IP_CACHE = new Map();
 const FAILED_TTL = 10 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -31,7 +29,8 @@ let cachedTrojanHash = null;
 let cachedTrojanPwd = null;
 let cachedProxyIPList = [];
 let cachedProxyIP = '';
-
+const WS_READY_STATE_OPEN = 1;
+const WS_READY_STATE_CLOSING = 2;
 function uniqueIPList(list) {
     const seen = new Set();
     return list.filter(item => {
@@ -42,7 +41,6 @@ function uniqueIPList(list) {
         return true;
     });
 }
-
 const UUIDUtils = {
     generateStandardUUID() {
         return crypto.randomUUID();
@@ -51,7 +49,6 @@ const UUIDUtils = {
         return UUID_REGEX.test(uuid);
     }
 };
-
 const IPParser = {
     parsePreferredIP(input) {
         if (!input) return null;
@@ -116,7 +113,6 @@ const IPParser = {
         return displayName;
     }
 };
-
 const ResponseBuilder = {
     html(content, status = 200, extraHeaders = {}) {
         return new Response(content, {
@@ -157,7 +153,6 @@ const ResponseBuilder = {
         });
     }
 };
-
 const ConfigUtils = {
     async loadAllConfig(env) {
         const kv = env.SJ || env.sj;
@@ -205,7 +200,6 @@ const ConfigUtils = {
         return defaultConfig;
     }
 };
-
 const ErrorHandler = {
     internalError(message = 'Internal Server Error') {
         return ResponseBuilder.text(message, 500);
@@ -214,14 +208,12 @@ const ErrorHandler = {
         return ResponseBuilder.text(message, 401);
     }
 };
-
 async function gP(env) {
     if (cachedAdminPwd) return cachedAdminPwd;
     const kv = env.SJ || env.sj;
     cachedAdminPwd = kv ? await kv.get(KP) : null;
     return cachedAdminPwd;
 }
-
 async function sP(env, pw) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
@@ -229,19 +221,16 @@ async function sP(env, pw) {
     cachedAdminPwd = pw;
     return true;
 }
-
 async function gU(env) {
     const kv = env.SJ || env.sj;
     return kv ? await kv.get(KU) : null;
 }
-
 async function sU(env, u) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     await kv.put(KU, u);
     return true;
 }
-
 async function signToken(env, exp) {
     const pwd = await gP(env) || 'default';
     const msg = `${exp}:${pwd}`;
@@ -251,7 +240,6 @@ async function signToken(env, exp) {
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     return btoa(`${exp}:${hashHex}`);
 }
-
 async function validateAndRefreshSession(env, token) {
     if (!token) return { valid: false };
     try {
@@ -276,7 +264,6 @@ async function validateAndRefreshSession(env, token) {
         return { valid: false };
     }
 }
-
 function getSessionCookie(cookieHeader) {
     if (!cookieHeader) return null;
     const cookies = cookieHeader.split(';');
@@ -288,16 +275,13 @@ function getSessionCookie(cookieHeader) {
     }
     return null;
 }
-
 function setSessionCookie(token) {
     const expires = new Date(Date.now() + SESSION_DURATION).toUTCString();
     return `cf_worker_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=${expires}`;
 }
-
 function clearSessionCookie() {
     return `cf_worker_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
 }
-
 async function requireAuth(req, env, handler) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
@@ -311,7 +295,6 @@ async function requireAuth(req, env, handler) {
     }
     return handler(req, env);
 }
-
 async function handleLogin(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
@@ -348,7 +331,6 @@ async function handleLogin(req, env) {
         return getLoginPage(host, base, false, passwordChanged);
     }
 }
-
 async function handleLogout(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
@@ -356,7 +338,6 @@ async function handleLogout(req, env) {
         'Set-Cookie': clearSessionCookie()
     });
 }
-
 async function optimizeConfigLoading(env, ctx) {
     const now = Date.now();
     if (cc && (now - ct) < CD) {
@@ -415,7 +396,6 @@ async function optimizeConfigLoading(env, ctx) {
     }
     return await loadConfigTask();
 }
-
 async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
@@ -453,7 +433,6 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     ct = Date.now();
     return true;
 }
-
 async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         const typeMap = { 'A': 1, 'NS': 2, 'CNAME': 5, 'MX': 15, 'TXT': 16, 'AAAA': 28, 'SRV': 33, 'HTTPS': 65 };
@@ -537,7 +516,6 @@ async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.
         return answers;
     } catch (e) { return []; }
 }
-
 async function getECH(host) {
     try {
         const answers = await DoH查询(host, 'HTTPS');
@@ -562,7 +540,6 @@ async function getECH(host) {
         return '';
     } catch { return ''; }
 }
-
 async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
     if (!cachedProxyIPList || cachedProxyIPList.length === 0 || cachedProxyIP !== proxyIP) {
         proxyIP = proxyIP.toLowerCase();
@@ -632,7 +609,6 @@ async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
     }
     return cachedProxyIPList;
 }
-
 async function connectWithTimeout(host, port, timeoutMs) {
     const socket = connect({
         hostname: host,
@@ -658,16 +634,13 @@ async function connectWithTimeout(host, port, timeoutMs) {
         if (timer) clearTimeout(timer);
     }
 }
-
-async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
+async function universalConnectWithFailover(targetHost = "www.visa.com.sg") {
     let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
     const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
     if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
-    
     const PRIMARY_TIMEOUT = 3000;
     const BACKUP_TIMEOUT = 2000;
-    
     const now = Date.now();
     for (const [ip, time] of FAILED_IP_CACHE) {
         if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
@@ -675,57 +648,27 @@ async function universalConnectWithFailover(targetHost = 'www.google.com', targe
     if (FAILED_IP_CACHE.size > 500) {
         FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
     }
-    
-    const primaryStr = `${resolvedList[0][0]}:${resolvedList[0][1]}`;
-    if (!FAILED_IP_CACHE.has(primaryStr)) {
-        try {
-            const socket = await connectWithTimeout(resolvedList[0][0], resolvedList[0][1], PRIMARY_TIMEOUT);
-            return { socket, server: { hostname: resolvedList[0][0], port: resolvedList[0][1], original: primaryStr } };
-        } catch (e) {
-            FAILED_IP_CACHE.set(primaryStr, Date.now());
+    for (let i = 0; i < resolvedList.length; i++) {
+        const [hostname, port] = resolvedList[i];
+        const cacheKey = `${hostname}:${port}`;
+        if (!FAILED_IP_CACHE.has(cacheKey)) {
+             try {
+                const socket = await connectWithTimeout(hostname, port, i === 0 ? PRIMARY_TIMEOUT : BACKUP_TIMEOUT);
+                return { socket, server: { hostname, port, original: cacheKey } };
+            } catch (e) {
+                FAILED_IP_CACHE.set(cacheKey, Date.now());
+            }
         }
     }
-    
-    let backups = resolvedList.slice(1);
-    let candidates = backups.filter(arr => !FAILED_IP_CACHE.has(`${arr[0]}:${arr[1]}`));
-    
-    if (candidates.length === 0) {
-        if (backups.length > 0) {
-            FAILED_IP_CACHE.clear();
-            FAILED_IP_CACHE.set(primaryStr, Date.now());
-            candidates = backups;
-        } else {
-             throw new Error(`主IP连接失败，且无可用备选IP`);
-        }
-    }
-    
-    for (let i = candidates.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-    }
-    
-    let lastError = null;
-    for (const s of candidates) {
-        const cacheKey = `${s[0]}:${s[1]}`;
-        try {
-            const socket = await connectWithTimeout(s[0], s[1], BACKUP_TIMEOUT);
-            return { socket, server: { hostname: s[0], port: s[1], original: cacheKey } };
-        } catch (err) {
-            FAILED_IP_CACHE.set(cacheKey, Date.now());
-            lastError = err;
-        }
-    }
-    throw new Error(`所有节点连接失败 (主节点+备选节点)，最后错误: ${lastError?.message}`);
+    throw new Error(`所有节点连接失败`);
 }
-
 function safeCloseWebSocket(socket) {
     try {
-        if (socket.readyState === 1 || socket.readyState === 2) {
+        if (socket.readyState === WS_READY_STATE_OPEN || socket.readyState === WS_READY_STATE_CLOSING) {
             socket.close();
         }
     } catch (e) { }
 }
-
 function safeCloseSocket(socket) {
     try {
         if (socket) {
@@ -733,196 +676,581 @@ function safeCloseSocket(socket) {
         }
     } catch (e) { }
 }
-
-function sha224(s) {
-	const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
-	const r = (n, b) => ((n >>> b) | (n << (32 - b))) >>> 0;
-	s = unescape(encodeURIComponent(s));
-	const l = s.length * 8; s += String.fromCharCode(0x80);
-	while ((s.length * 8) % 512 !== 448) s += String.fromCharCode(0);
-	const h = [0xc1059ed8, 0x367cd507, 0x3070dd17, 0xf70e5939, 0xffc00b31, 0x68581511, 0x64f98fa7, 0xbefa4fa4];
-	const hi = Math.floor(l / 0x100000000), lo = l & 0xFFFFFFFF;
-	s += String.fromCharCode((hi >>> 24) & 0xFF, (hi >>> 16) & 0xFF, (hi >>> 8) & 0xFF, hi & 0xFF, (lo >>> 24) & 0xFF, (lo >>> 16) & 0xFF, (lo >>> 8) & 0xFF, lo & 0xFF);
-	const w = []; for (let i = 0; i < s.length; i += 4)w.push((s.charCodeAt(i) << 24) | (s.charCodeAt(i + 1) << 16) | (s.charCodeAt(i + 2) << 8) | s.charCodeAt(i + 3));
-	for (let i = 0; i < w.length; i += 16) {
-		const x = new Array(64).fill(0);
-		for (let j = 0; j < 16; j++)x[j] = w[i + j];
-		for (let j = 16; j < 64; j++) {
-			const s0 = r(x[j - 15], 7) ^ r(x[j - 15], 18) ^ (x[j - 15] >>> 3);
-			const s1 = r(x[j - 2], 17) ^ r(x[j - 2], 19) ^ (x[j - 2] >>> 10);
-			x[j] = (x[j - 16] + s0 + x[j - 7] + s1) >>> 0;
-		}
-		let [a, b, c, d, e, f, g, h0] = h;
-		for (let j = 0; j < 64; j++) {
-			const S1 = r(e, 6) ^ r(e, 11) ^ r(e, 25), ch = (e & f) ^ (~e & g), t1 = (h0 + S1 + ch + K[j] + x[j]) >>> 0;
-			const S0 = r(a, 2) ^ r(a, 13) ^ r(a, 22), maj = (a & b) ^ (a & c) ^ (b & c), t2 = (S0 + maj) >>> 0;
-			h0 = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
-		}
-		for (let j = 0; j < 8; j++)h[j] = (h[j] + (j === 0 ? a : j === 1 ? b : j === 2 ? c : j === 3 ? d : j === 4 ? e : j === 5 ? f : j === 6 ? g : h0)) >>> 0;
-	}
-	let hex = '';
-	for (let i = 0; i < 7; i++) {
-		for (let j = 24; j >= 0; j -= 8)hex += ((h[i] >>> j) & 0xFF).toString(16).padStart(2, '0');
-	}
-	return hex;
+async function sha224Hash(text) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const K =[
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+    ];
+    let H =[
+        0xc1059ed8, 0x367cd507, 0x3070dd17, 0xf70e5939,
+        0xffc00b31, 0x68581511, 0x64f98fa7, 0xbefa4fa4
+    ];
+    const msgLen = data.length;
+    const bitLen = msgLen * 8;
+    const paddedLen = Math.ceil((msgLen + 9) / 64) * 64;
+    const padded = new Uint8Array(paddedLen);
+    padded.set(data);
+    padded[msgLen] = 0x80;
+    const view = new DataView(padded.buffer);
+    view.setUint32(paddedLen - 4, bitLen, false);
+    for (let chunk = 0; chunk < paddedLen; chunk += 64) {
+        const W = new Uint32Array(64);
+        for (let i = 0; i < 16; i++) {
+            W[i] = view.getUint32(chunk + i * 4, false);
+        }
+        for (let i = 16; i < 64; i++) {
+            const s0 = rightRotate(W[i - 15], 7) ^ rightRotate(W[i - 15], 18) ^ (W[i - 15] >>> 3);
+            const s1 = rightRotate(W[i - 2], 17) ^ rightRotate(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+            W[i] = (W[i - 16] + s0 + W[i - 7] + s1) >>> 0;
+        }
+        let [a, b, c, d, e, f, g, h] = H;
+        for (let i = 0; i < 64; i++) {
+            const S1 = rightRotate(e, 6) ^ rightRotate(e, 11) ^ rightRotate(e, 25);
+            const ch = (e & f) ^ (~e & g);
+            const temp1 = (h + S1 + ch + K[i] + W[i]) >>> 0;
+            const S0 = rightRotate(a, 2) ^ rightRotate(a, 13) ^ rightRotate(a, 22);
+            const maj = (a & b) ^ (a & c) ^ (b & c);
+            const temp2 = (S0 + maj) >>> 0;
+            h = g;
+            g = f;
+            f = e;
+            e = (d + temp1) >>> 0;
+            d = c;
+            c = b;
+            b = a;
+            a = (temp1 + temp2) >>> 0;
+        }
+        H[0] = (H[0] + a) >>> 0;
+        H[1] = (H[1] + b) >>> 0;
+        H[2] = (H[2] + c) >>> 0;
+        H[3] = (H[3] + d) >>> 0;
+        H[4] = (H[4] + e) >>> 0;
+        H[5] = (H[5] + f) >>> 0;
+        H[6] = (H[6] + g) >>> 0;
+        H[7] = (H[7] + h) >>> 0;
+    }
+    const result =[];
+    for (let i = 0; i < 7; i++) {
+        result.push(
+            ((H[i] >>> 24) & 0xff).toString(16).padStart(2, '0'),
+            ((H[i] >>> 16) & 0xff).toString(16).padStart(2, '0'),
+            ((H[i] >>> 8) & 0xff).toString(16).padStart(2, '0'),
+            (H[i] & 0xff).toString(16).padStart(2, '0')
+        );
+    }
+    return result.join('');
 }
-
-function formatIdentifier(arr, offset = 0) {
-	const hex = [...arr.slice(offset, offset + 16)].map(b => b.toString(16).padStart(2, '0')).join('');
-	return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}`;
+function sha224Sync(s) {
+    const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
+    const r = (n, b) => ((n >>> b) | (n << (32 - b))) >>> 0;
+    s = unescape(encodeURIComponent(s));
+    const l = s.length * 8; s += String.fromCharCode(0x80);
+    while ((s.length * 8) % 512 !== 448) s += String.fromCharCode(0);
+    const h = [0xc1059ed8, 0x367cd507, 0x3070dd17, 0xf70e5939, 0xffc00b31, 0x68581511, 0x64f98fa7, 0xbefa4fa4];
+    const hi = Math.floor(l / 0x100000000), lo = l & 0xFFFFFFFF;
+    s += String.fromCharCode((hi >>> 24) & 0xFF, (hi >>> 16) & 0xFF, (hi >>> 8) & 0xFF, hi & 0xFF, (lo >>> 24) & 0xFF, (lo >>> 16) & 0xFF, (lo >>> 8) & 0xFF, lo & 0xFF);
+    const w = []; for (let i = 0; i < s.length; i += 4)w.push((s.charCodeAt(i) << 24) | (s.charCodeAt(i + 1) << 16) | (s.charCodeAt(i + 2) << 8) | s.charCodeAt(i + 3));
+    for (let i = 0; i < w.length; i += 16) {
+        const x = new Array(64).fill(0);
+        for (let j = 0; j < 16; j++)x[j] = w[i + j];
+        for (let j = 16; j < 64; j++) {
+            const s0 = r(x[j - 15], 7) ^ r(x[j - 15], 18) ^ (x[j - 15] >>> 3);
+            const s1 = r(x[j - 2], 17) ^ r(x[j - 2], 19) ^ (x[j - 2] >>> 10);
+            x[j] = (x[j - 16] + s0 + x[j - 7] + s1) >>> 0;
+        }
+        let [a, b, c, d, e, f, g, h0] = h;
+        for (let j = 0; j < 64; j++) {
+            const S1 = r(e, 6) ^ r(e, 11) ^ r(e, 25), ch = (e & f) ^ (~e & g), t1 = (h0 + S1 + ch + K[j] + x[j]) >>> 0;
+            const S0 = r(a, 2) ^ r(a, 13) ^ r(a, 22), maj = (a & b) ^ (a & c) ^ (b & c), t2 = (S0 + maj) >>> 0;
+            h0 = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+        }
+        for (let j = 0; j < 8; j++)h[j] = (h[j] + (j === 0 ? a : j === 1 ? b : j === 2 ? c : j === 3 ? d : j === 4 ? e : j === 5 ? f : j === 6 ? g : h0)) >>> 0;
+    }
+    let hex = '';
+    for (let i = 0; i < 7; i++) {
+        for (let j = 24; j >= 0; j -= 8)hex += ((h[i] >>> j) & 0xFF).toString(16).padStart(2, '0');
+    }
+    return hex;
 }
-
-function 解析木马请求(buffer, passwordPlainText) {
-	const sha224Password = sha224(passwordPlainText);
-	if (buffer.byteLength < 56) return { hasError: true, message: "invalid data" };
-	let crLfIndex = 56;
-	if (new Uint8Array(buffer.slice(56, 57))[0] !== 0x0d || new Uint8Array(buffer.slice(57, 58))[0] !== 0x0a) return { hasError: true, message: "invalid header format" };
-	const password = new TextDecoder().decode(buffer.slice(0, crLfIndex));
-	if (password !== sha224Password) return { hasError: true, message: "invalid password" };
-	const socks5DataBuffer = buffer.slice(crLfIndex + 2);
-	if (socks5DataBuffer.byteLength < 6) return { hasError: true, message: "invalid S5 request data" };
-	const view = new DataView(socks5DataBuffer);
-	const cmd = view.getUint8(0);
-	if (cmd !== 1) return { hasError: true, message: "unsupported command" };
-	const atype = view.getUint8(1);
-	let addressLength = 0, addressIndex = 2, address = "";
-	switch (atype) {
-		case 1: addressLength = 4; address = new Uint8Array(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)).join("."); break;
-		case 3: addressLength = new Uint8Array(socks5DataBuffer.slice(addressIndex, addressIndex + 1))[0]; addressIndex += 1; address = new TextDecoder().decode(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)); break;
-		case 4: addressLength = 16; const dataView = new DataView(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)); const ipv6 = []; for (let i = 0; i < 8; i++) { ipv6.push(dataView.getUint16(i * 2).toString(16)); } address = ipv6.join(":"); break;
-		default: return { hasError: true, message: `invalid addressType is ${atype}` };
-	}
-	if (!address) return { hasError: true, message: `address is empty` };
-	const portIndex = addressIndex + addressLength;
-	const portBuffer = socks5DataBuffer.slice(portIndex, portIndex + 2);
-	const portRemote = new DataView(portBuffer).getUint16(0);
-	return { hasError: false, addressType: atype, port: portRemote, hostname: address, rawClientData: socks5DataBuffer.slice(portIndex + 4) };
+function rightRotate(value, amount) {
+    return (value >>> amount) | (value << (32 - amount));
 }
-
-function 解析魏烈思请求(chunk, token) {
-	if (chunk.byteLength < 24) return { hasError: true, message: 'Invalid data' };
-	const version = new Uint8Array(chunk.slice(0, 1));
-	if (formatIdentifier(new Uint8Array(chunk.slice(1, 17))) !== token) return { hasError: true, message: 'Invalid uuid' };
-	const optLen = new Uint8Array(chunk.slice(17, 18))[0];
-	const cmd = new Uint8Array(chunk.slice(18 + optLen, 19 + optLen))[0];
-	let isUDP = false;
-	if (cmd === 1) { } else if (cmd === 2) { isUDP = true } else { return { hasError: true, message: 'Invalid command' } }
-	const portIdx = 19 + optLen;
-	const port = new DataView(chunk.slice(portIdx, portIdx + 2)).getUint16(0);
-	let addrIdx = portIdx + 2, addrLen = 0, addrValIdx = addrIdx + 1, hostname = '';
-	const addressType = new Uint8Array(chunk.slice(addrIdx, addrValIdx))[0];
-	switch (addressType) {
-		case 1: addrLen = 4; hostname = new Uint8Array(chunk.slice(addrValIdx, addrValIdx + addrLen)).join('.'); break;
-		case 2: addrLen = new Uint8Array(chunk.slice(addrValIdx, addrValIdx + 1))[0]; addrValIdx += 1; hostname = new TextDecoder().decode(chunk.slice(addrValIdx, addrValIdx + addrLen)); break;
-		case 3: addrLen = 16; const ipv6 = []; const ipv6View = new DataView(chunk.slice(addrValIdx, addrValIdx + addrLen)); for (let i = 0; i < 8; i++) ipv6.push(ipv6View.getUint16(i * 2).toString(16)); hostname = ipv6.join(':'); break;
-		default: return { hasError: true, message: `Invalid address type: ${addressType}` };
-	}
-	if (!hostname) return { hasError: true, message: `Invalid address` };
-	return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
+async function parseTrojanHeader(buffer, ut) {
+    const passwordToHash = tp || ut;
+    if (cachedTrojanPwd !== passwordToHash || !cachedTrojanHash) {
+        cachedTrojanHash = await sha224Hash(passwordToHash);
+        cachedTrojanPwd = passwordToHash;
+    }
+    const sha224Password = cachedTrojanHash;
+    if (buffer.byteLength < 58) {
+        return { hasError: true, message: "invalid trojan data - too short" };
+    }
+    let crLfIndex = 56;
+    if (new Uint8Array(buffer)[crLfIndex] !== 0x0d || new Uint8Array(buffer)[crLfIndex + 1] !== 0x0a) {
+        return { hasError: true, message: "invalid trojan header format (missing CR LF)" };
+    }
+    const password = new TextDecoder().decode(buffer.subarray(0, crLfIndex));
+    if (password !== sha224Password) {
+        return { hasError: true, message: "invalid trojan password" };
+    }
+    const socks5DataBuffer = buffer.subarray(crLfIndex + 2);
+    if (socks5DataBuffer.byteLength < 6) {
+        return { hasError: true, message: "invalid SOCKS5 request data" };
+    }
+    const view = new DataView(socks5DataBuffer.buffer, socks5DataBuffer.byteOffset, socks5DataBuffer.byteLength);
+    const cmd = view.getUint8(0);
+    if (cmd !== 1) {
+        return { hasError: true, message: "unsupported command, only TCP (CONNECT) is allowed" };
+    }
+    const atype = view.getUint8(1);
+    let addressLength = 0;
+    let addressIndex = 2;
+    let address = "";
+    switch (atype) {
+        case 1:
+            addressLength = 4;
+            address = new Uint8Array(socks5DataBuffer.subarray(addressIndex, addressIndex + addressLength)).join(".");
+            break;
+        case 3:
+            addressLength = new Uint8Array(socks5DataBuffer.subarray(addressIndex, addressIndex + 1))[0];
+            addressIndex += 1;
+            address = new TextDecoder().decode(socks5DataBuffer.subarray(addressIndex, addressIndex + addressLength));
+            break;
+        case 4:
+            addressLength = 16;
+            const dataView = new DataView(socks5DataBuffer.buffer, socks5DataBuffer.byteOffset + addressIndex, addressLength);
+            const ipv6 =[];
+            for (let i = 0; i < 8; i++) {
+                ipv6.push(dataView.getUint16(i * 2).toString(16));
+            }
+            address = ipv6.join(":");
+            break;
+        default:
+            return { hasError: true, message: `invalid addressType is ${atype}` };
+    }
+    if (!address) {
+        return { hasError: true, message: `address is empty, addressType is ${atype}` };
+    }
+    const portIndex = addressIndex + addressLength;
+    const portBuffer = socks5DataBuffer.subarray(portIndex, portIndex + 2);
+    const portRemote = new DataView(portBuffer.buffer, portBuffer.byteOffset, 2).getUint16(0);
+    return {
+        hasError: false,
+        addressRemote: address,
+        addressType: atype,
+        port: portRemote,
+        hostname: address,
+        rawClientData: socks5DataBuffer.subarray(portIndex + 4)
+    };
 }
-
-async function forwardataudp(udpChunk, webSocket, respHeader) {
-	try {
-		const tcpSocket = connect({ hostname: '8.8.4.4', port: 53 });
-		let vlessHeader = respHeader;
-		const writer = tcpSocket.writable.getWriter();
-		await writer.write(udpChunk);
-		writer.releaseLock();
-		await tcpSocket.readable.pipeTo(new WritableStream({
-			async write(chunk) {
-				if (webSocket.readyState === 1) {
-					if (vlessHeader) {
-						const response = new Uint8Array(vlessHeader.length + chunk.byteLength);
-						response.set(vlessHeader, 0);
-						response.set(chunk, vlessHeader.length);
-						webSocket.send(response.buffer);
-						vlessHeader = null;
-					} else webSocket.send(chunk);
-				}
-			},
-		}));
-	} catch (error) {}
+async function VLOverWSHandler(req, config, proxyCtx) {
+    const webSocketPair = new WebSocketPair();
+    const [client, ws] = Object.values(webSocketPair);
+    ws.accept();
+    let remote = { value: null };
+    let udpWrite = null;
+    let isDns = false;
+    let protocolType = null;
+    let processed = false;
+    let remoteWriter = null;
+    const cleanup = () => {
+        if (remote.value) {
+            safeCloseSocket(remote.value);
+            remote.value = null;
+        }
+        if (remoteWriter) {
+            try { remoteWriter.releaseLock(); } catch(e) {}
+            remoteWriter = null;
+        }
+        if (udpWrite && typeof udpWrite.close === 'function') {
+            try { udpWrite.close(); } catch(e) {}
+            udpWrite = null;
+        }
+        safeCloseWebSocket(ws);
+    };
+    ws.addEventListener('close', () => { cleanup(); });
+    ws.addEventListener('error', () => { cleanup(); });
+    const early = req.headers.get('sec-websocket-protocol') || '';
+    const stream = makeReadableWebSocketStream(ws, early);
+    stream.pipeTo(new WritableStream({
+        async write(chunk, ctrl) {
+            try {
+                if (chunk instanceof ArrayBuffer) {
+                    chunk = new Uint8Array(chunk);
+                }
+                if (processed) {
+                    if (isDns && udpWrite) {
+                        return udpWrite.write(chunk);
+                    }
+                    if (remote.value) {
+                        if (!remoteWriter) {
+                            remoteWriter = remote.value.writable.getWriter();
+                        }
+                        await remoteWriter.write(chunk);
+                        return;
+                    }
+                    return;
+                }
+                let protocolDetected = false;
+                if (et && !protocolDetected) {
+                    const tjResult = await parseTrojanHeader(chunk, uid);
+                    if (!tjResult.hasError) {
+                        protocolType = 'trojan';
+                        protocolDetected = true;
+                        const { addressRemote, port, rawClientData } = tjResult;
+                        await handleTCP(remote, addressRemote, port, rawClientData, ws, null, proxyCtx);
+                        if (remote.value) {
+                            remoteWriter = remote.value.writable.getWriter();
+                        }
+                        processed = true;
+                        return;
+                    }
+                }
+                if (ev && !protocolDetected) {
+                    const vlessResult = await processVHeader(chunk, config.uuidSet);
+                    if (!vlessResult.hasError) {
+                        protocolType = 'vless';
+                        protocolDetected = true;
+                        const { portRemote, addressRemote, rawDataIndex, VLVersion, isUDP } = vlessResult;
+                        if (isUDP) {
+                            if (portRemote === 53) {
+                                isDns = true;
+                            } else {
+                                return;
+                            }
+                        }
+                        const respHeader = new Uint8Array([VLVersion[0], 0]);
+                        const rawData = chunk.subarray(rawDataIndex);
+                        if (isDns) {
+                            const writerObj = await handleUDPO(ws, respHeader);
+                            udpWrite = writerObj;
+                            udpWrite.write(rawData);
+                            processed = true;
+                            return;
+                        }
+                        await handleTCP(remote, addressRemote, portRemote, rawData, ws, respHeader, proxyCtx);
+                        if (remote.value) {
+                            remoteWriter = remote.value.writable.getWriter();
+                        }
+                        processed = true;
+                        return;
+                    }
+                }
+                if (!protocolDetected) {
+                    throw new Error('Invalid protocol');
+                }
+            } catch (e) {
+                cleanup();
+                ctrl.error(e);
+            }
+        },
+        close() { cleanup(); },
+        abort(r) { cleanup(); },
+    })).catch((e) => {
+        cleanup();
+    }).finally(() => {
+        cleanup();
+    });
+    return new Response(null, {
+        status: 101,
+        webSocket: client,
+    });
 }
-
-async function socks5Connect(targetHost, targetPort, proxyAddress) {
-	const { username, password, hostname, port } = proxyAddress;
-	const socket = connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
-    await socket.opened;
-    const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
-	try {
-		const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
-		await writer.write(authMethods);
-		let response = await reader.read();
-		if (response.done || response.value.byteLength < 2) throw new Error('S5 method selection failed');
-		const selectedMethod = new Uint8Array(response.value)[1];
-		if (selectedMethod === 0x02) {
-			if (!username || !password) throw new Error('S5 requires authentication');
-			const userBytes = new TextEncoder().encode(username), passBytes = new TextEncoder().encode(password);
-			const authPacket = new Uint8Array([0x01, userBytes.length, ...userBytes, passBytes.length, ...passBytes]);
-			await writer.write(authPacket);
-			response = await reader.read();
-			if (response.done || new Uint8Array(response.value)[1] !== 0x00) throw new Error('S5 authentication failed');
-		} else if (selectedMethod !== 0x00) throw new Error(`S5 unsupported auth method`);
-		const hostBytes = new TextEncoder().encode(targetHost);
-		const connectPacket = new Uint8Array([0x05, 0x01, 0x00, 0x03, hostBytes.length, ...hostBytes, targetPort >> 8, targetPort & 0xff]);
-		await writer.write(connectPacket);
-		response = await reader.read();
-		if (response.done || new Uint8Array(response.value)[1] !== 0x00) throw new Error('S5 connection failed');
-		
-		writer.releaseLock(); reader.releaseLock();
-		return socket;
-	} catch (error) {
-		try { writer.releaseLock() } catch (e) { }
-		try { reader.releaseLock() } catch (e) { }
-		try { socket.close() } catch (e) { }
-		throw error;
-	}
+async function handleGRPCRequest(request, config, proxyCtx) {
+    if (!request.body) return new Response('Bad Request', { status: 400 });
+    const reader = request.body.getReader();
+    const grpcHeaders = new Headers({ 'Content-Type': 'application/grpc', 'grpc-status': '0', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
+    return new Response(new ReadableStream({
+        async start(controller) {
+            let tcpSocket = null;
+            let remoteWriter = null;
+            let isDns = false;
+            let udpWrite = null;
+            const grpcBridge = {
+                readyState: 1,
+                send(data) {
+                    const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
+                    const lenBytes数组 = [];
+                    let remaining = chunk.byteLength >>> 0;
+                    while (remaining > 127) { lenBytes数组.push((remaining & 0x7f) | 0x80); remaining >>>= 7; }
+                    lenBytes数组.push(remaining);
+                    const lenBytes = new Uint8Array(lenBytes数组);
+                    const protobufLen = 1 + lenBytes.length + chunk.byteLength;
+                    const frame = new Uint8Array(5 + protobufLen);
+                    frame[0] = 0; frame[1] = (protobufLen >>> 24) & 0xff; frame[2] = (protobufLen >>> 16) & 0xff; frame[3] = (protobufLen >>> 8) & 0xff; frame[4] = protobufLen & 0xff; frame[5] = 0x0a;
+                    frame.set(lenBytes, 6); frame.set(chunk, 6 + lenBytes.length);
+                    try { controller.enqueue(frame); } catch(e){}
+                },
+                close() { try { controller.close() } catch(e){} }
+            };
+            try {
+                let pending = new Uint8Array(0);
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (!value) continue;
+                    const chunk = new Uint8Array(value);
+                    const merged = new Uint8Array(pending.length + chunk.length);
+                    merged.set(pending, 0); merged.set(chunk, pending.length); pending = merged;
+                    while (pending.byteLength >= 5) {
+                        const grpcLen = ((pending[1] << 24) >>> 0) | (pending[2] << 16) | (pending[3] << 8) | pending[4];
+                        const frameSize = 5 + grpcLen;
+                        if (pending.byteLength < frameSize) break;
+                        const grpcPayload = pending.slice(5, frameSize);
+                        pending = pending.slice(frameSize);
+                        if (!grpcPayload.byteLength) continue;
+                        let payload = grpcPayload;
+                        if (payload.byteLength >= 2 && payload[0] === 0x0a) {
+                            let shift = 0, offset = 1, varint有效 = false;
+                            while (offset < payload.length) {
+                                if ((payload[offset++] & 0x80) === 0) { varint有效 = true; break; }
+                                shift += 7; if (shift > 35) break;
+                            }
+                            if (varint有效) payload = payload.slice(offset);
+                        }
+                        if (!payload.byteLength) continue;
+                        if (isDns && udpWrite) {
+                            udpWrite.write(payload);
+                            continue;
+                        }
+                        if (tcpSocket) {
+                            if(!remoteWriter) remoteWriter = tcpSocket.writable.getWriter();
+                            await remoteWriter.write(payload);
+                            continue;
+                        }
+                        let isTrojan = et && payload.byteLength >= 58 && payload[56] === 0x0d && payload[57] === 0x0a;
+                        if (isTrojan) {
+                            const tjResult = await parseTrojanHeader(payload, uid);
+                            if (!tjResult.hasError) {
+                                tcpSocket = await createConnection(tjResult.addressRemote, tjResult.port, proxyCtx);
+                                remoteWriter = tcpSocket.writable.getWriter();
+                                await remoteWriter.write(tjResult.rawClientData);
+                                tcpSocket.readable.pipeTo(new WritableStream({
+                                    write(chunk) { grpcBridge.send(chunk); },
+                                    close() { grpcBridge.close(); },
+                                    abort() { grpcBridge.close(); }
+                                })).catch(()=>{});
+                                continue;
+                            }
+                        }
+                        if (ev) {
+                            const vlResult = await processVHeader(payload, config.uuidSet);
+                            if (!vlResult.hasError) {
+                                if (vlResult.isUDP) {
+                                    if (vlResult.portRemote === 53) {
+                                        isDns = true;
+                                        const respHeader = new Uint8Array([vlResult.VLVersion[0], 0]);
+                                        grpcBridge.send(respHeader);
+                                        udpWrite = await handleUDPO({
+                                            readyState: WS_READY_STATE_OPEN,
+                                            send: (c) => grpcBridge.send(c),
+                                            close: () => grpcBridge.close()
+                                        }, null);
+                                        udpWrite.write(payload.slice(vlResult.rawDataIndex));
+                                        continue;
+                                    } else {
+                                        throw new Error('UDP not supported');
+                                    }
+                                }
+                                tcpSocket = await createConnection(vlResult.addressRemote, vlResult.portRemote, proxyCtx);
+                                remoteWriter = tcpSocket.writable.getWriter();
+                                await remoteWriter.write(payload.slice(vlResult.rawDataIndex));
+                                let headerToSend = new Uint8Array([vlResult.VLVersion[0], 0]);
+                                tcpSocket.readable.pipeTo(new WritableStream({
+                                    write(chunk) {
+                                        if (headerToSend) {
+                                            const merged = new Uint8Array(headerToSend.length + chunk.byteLength);
+                                            merged.set(headerToSend, 0); merged.set(chunk, headerToSend.length);
+                                            grpcBridge.send(merged);
+                                            headerToSend = null;
+                                        } else {
+                                            grpcBridge.send(chunk);
+                                        }
+                                    },
+                                    close() { grpcBridge.close(); },
+                                    abort() { grpcBridge.close(); }
+                                })).catch(()=>{});
+                                continue;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {
+                grpcBridge.close();
+            } finally {
+                if (remoteWriter) try { remoteWriter.releaseLock(); } catch(e){}
+                if (tcpSocket) try { tcpSocket.close(); } catch(e){}
+                try { reader.releaseLock(); } catch(e){}
+            }
+        },
+        cancel() {}
+    }), { status: 200, headers: grpcHeaders });
 }
-
-async function httpConnect(targetHost, targetPort, proxyAddress, HTTPS代理 = false) {
-	const { username, password, hostname, port } = proxyAddress;
-	const socket = HTTPS代理 ? connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: true, connectTimeout: globalTimeout, noDelay: true }) : connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
-	await socket.opened;
-    const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
-	const encoder = new TextEncoder(), decoder = new TextDecoder();
-	try {
-		const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
-		const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}User-Agent: Mozilla/5.0\r\nConnection: keep-alive\r\n\r\n`;
-		await writer.write(encoder.encode(request));
-		
-		let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
-		while (headerEndIndex === -1 && bytesRead < 8192) {
-			const { done, value } = await reader.read();
-			if (done || !value) throw new Error(`HTTP 代理在返回 CONNECT 响应前关闭连接`);
-			responseBuffer = new Uint8Array([...responseBuffer, ...value]);
-			bytesRead = responseBuffer.length;
-			const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 0x0d && responseBuffer[i + 1] === 0x0a && responseBuffer[i + 2] === 0x0d && responseBuffer[i + 3] === 0x0a);
-			if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
-		}
-		if (headerEndIndex === -1) throw new Error('代理 CONNECT 响应头无效');
-		const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split('\r\n')[0].match(/HTTP\/\d\.\d\s+(\d+)/);
-		const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
-		if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
-		reader.releaseLock();
-        writer.releaseLock();
-		if (bytesRead > headerEndIndex) {
-			const { readable, writable } = new TransformStream();
-			const transformWriter = writable.getWriter();
-			await transformWriter.write(responseBuffer.subarray(headerEndIndex, bytesRead));
-			transformWriter.releaseLock();
-			socket.readable.pipeTo(writable).catch(() => { });
-			return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
-		}
-		return socket;
-	} catch (error) {
-		try { writer.releaseLock() } catch (e) { }
-		try { reader.releaseLock() } catch (e) { }
-		try { socket.close() } catch (e) { }
-		throw error;
-	}
+async function handleXHTTPRequest(request, config, proxyCtx) {
+    if (!request.body) return new Response('Bad Request', { status: 400 });
+    const reader = request.body.getReader();
+    const 密码哈希字节 = new TextEncoder().encode(sha224Sync(tp || uid));
+    const 尝试解析 = async (data) => {
+        if (et && data.byteLength >= 58 && data[56] === 0x0d && data[57] === 0x0a) {
+            let match = true;
+            for (let i = 0; i < 56; i++) { if (data[i] !== 密码哈希字节[i]) { match = false; break; } }
+            if (match) {
+                const res = await parseTrojanHeader(data, uid);
+                if (!res.hasError) return { type: 'trojan', res };
+            }
+        }
+        if (ev && data.byteLength >= 18) {
+            const res = await processVHeader(data, config.uuidSet);
+            if (!res.hasError) return { type: 'vless', res };
+        }
+        return null;
+    };
+    let buffer = new Uint8Array(1024), offset = 0;
+    let parsedHeader = null;
+    while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = new Uint8Array(value);
+        if (offset + chunk.byteLength > buffer.byteLength) {
+            const newBuf = new Uint8Array(Math.max(buffer.byteLength * 2, offset + chunk.byteLength));
+            newBuf.set(buffer.subarray(0, offset)); buffer = newBuf;
+        }
+        buffer.set(chunk, offset); offset += chunk.byteLength;
+        parsedHeader = await 尝试解析(buffer.subarray(0, offset));
+        if (parsedHeader) break;
+        if (offset > 65536) break;
+    }
+    if (!parsedHeader) { try { reader.releaseLock(); } catch(e){} return new Response('Invalid', { status: 400 }); }
+    const responseHeaders = new Headers({ 'Content-Type': 'application/octet-stream', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
+    return new Response(new ReadableStream({
+        async start(controller) {
+            let tcpSocket = null;
+            let remoteWriter = null;
+            let isDns = false;
+            let udpWrite = null;
+            const xhttpBridge = {
+                readyState: WS_READY_STATE_OPEN,
+                send(data) { try { controller.enqueue(new Uint8Array(data)); } catch(e){} },
+                close() { try { controller.close() } catch(e){} }
+            };
+            try {
+                let addressRemote, portRemote, rawClientData, headerToSend = null;
+                if (parsedHeader.type === 'trojan') {
+                    addressRemote = parsedHeader.res.addressRemote;
+                    portRemote = parsedHeader.res.port;
+                    rawClientData = parsedHeader.res.rawClientData;
+                } else {
+                    addressRemote = parsedHeader.res.addressRemote;
+                    portRemote = parsedHeader.res.portRemote;
+                    rawClientData = buffer.subarray(0, offset).slice(parsedHeader.res.rawDataIndex);
+                    headerToSend = new Uint8Array([parsedHeader.res.VLVersion[0], 0]);
+                    if (parsedHeader.res.isUDP) {
+                        if (portRemote === 53) {
+                            isDns = true;
+                            xhttpBridge.send(headerToSend);
+                            headerToSend = null;
+                            udpWrite = await handleUDPO(xhttpBridge, null);
+                            udpWrite.write(rawClientData);
+                        } else throw new Error('UDP not supported');
+                    }
+                }
+                if (!isDns) {
+                    tcpSocket = await createConnection(addressRemote, portRemote, proxyCtx);
+                    remoteWriter = tcpSocket.writable.getWriter();
+                    await remoteWriter.write(rawClientData);
+                    tcpSocket.readable.pipeTo(new WritableStream({
+                        write(chunk) {
+                            if (headerToSend) {
+                                const merged = new Uint8Array(headerToSend.length + chunk.byteLength);
+                                merged.set(headerToSend, 0); merged.set(chunk, headerToSend.length);
+                                xhttpBridge.send(merged);
+                                headerToSend = null;
+                            } else {
+                                xhttpBridge.send(chunk);
+                            }
+                        },
+                        close() { xhttpBridge.close(); },
+                        abort() { xhttpBridge.close(); }
+                    })).catch(()=>{});
+                }
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    if (!value) continue;
+                    if (isDns && udpWrite) {
+                        udpWrite.write(value);
+                    } else if (remoteWriter) {
+                        await remoteWriter.write(value);
+                    }
+                }
+            } catch (e) {
+                xhttpBridge.close();
+            } finally {
+                if (remoteWriter) try { remoteWriter.releaseLock(); } catch(e){}
+                if (tcpSocket) try { tcpSocket.close(); } catch(e){}
+                try { reader.releaseLock(); } catch(e){}
+            }
+        },
+        cancel() {}
+    }), { status: 200, headers: responseHeaders });
 }
-
-async function createConnection(host, port, proxyCtx) {
+async function handleTCP(remote, addr, pt, raw, ws, vh, proxyCtx) {
+    let tcpSocket;
+    try {
+        tcpSocket = await createConnection(addr, pt, proxyCtx);
+        remote.value = tcpSocket;
+    } catch (e) {
+        safeCloseWebSocket(ws);
+        return;
+    }
+    const writer = tcpSocket.writable.getWriter();
+    try {
+        await writer.write(raw);
+    } catch (e) {
+        safeCloseSocket(tcpSocket);
+        safeCloseWebSocket(ws);
+        return;
+    } finally {
+        try { writer.releaseLock(); } catch(e) {}
+    }
+    let headerToSend = vh;
+    tcpSocket.readable.pipeTo(new WritableStream({
+        write(chunk) {
+            if (ws.readyState === WS_READY_STATE_OPEN) {
+                try {
+                    if (headerToSend) {
+                        const response = new Uint8Array(headerToSend.length + chunk.byteLength);
+                        response.set(headerToSend, 0);
+                        response.set(chunk, headerToSend.length);
+                        ws.send(response.buffer);
+                        headerToSend = null;
+                    } else {
+                        ws.send(chunk);
+                    }
+                } catch (e) {
+                    throw e;
+                }
+            } else {
+                throw new Error("WS Closed");
+            }
+        },
+        close() { safeCloseWebSocket(ws); safeCloseSocket(tcpSocket); },
+        abort() { safeCloseWebSocket(ws); safeCloseSocket(tcpSocket); }
+    })).catch(() => {
+        safeCloseWebSocket(ws);
+        safeCloseSocket(tcpSocket);
+    });
+    return;
+}
+async function createConnection(host, port, proxyCtx, addressType = 3) {
     const { enableType, global, parsedAddress } = proxyCtx;
     const tryDirect = async () => {
         try {
@@ -936,9 +1264,8 @@ async function createConnection(host, port, proxyCtx) {
     const tryProxy = async () => {
         if (!enableType || !parsedAddress) return null;
         try {
-            if (enableType === 'socks5') return await socks5Connect(host, port, parsedAddress);
-            if (enableType === 'http') return await httpConnect(host, port, parsedAddress, false);
-            if (enableType === 'https') return await httpConnect(host, port, parsedAddress, true);
+            if (enableType === 'socks5') return await socks5Connect(host, port, parsedAddress, addressType);
+            if (enableType === 'http') return await httpConnect(host, port, parsedAddress);
         } catch (e) {
             return null;
         }
@@ -946,7 +1273,7 @@ async function createConnection(host, port, proxyCtx) {
     };
     const tryReverse = async () => {
         try {
-            const { socket } = await universalConnectWithFailover(host, port);
+            const { socket } = await universalConnectWithFailover(host);
             return socket;
         } catch (e) {
             return null;
@@ -968,599 +1295,537 @@ async function createConnection(host, port, proxyCtx) {
     }
     return sock;
 }
-
-async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
-	let header = headerData, hasData = false, reader, useBYOB = false;
-	const 发送块 = async (chunk) => {
-		if (webSocket.readyState !== 1) throw new Error('ws.readyState is not open');
-		if (header) {
-			const merged = new Uint8Array(header.length + chunk.byteLength);
-			merged.set(header, 0); merged.set(chunk, header.length);
-			webSocket.send(merged.buffer);
-			header = null;
-		} else webSocket.send(chunk);
-	};
-	try { reader = remoteSocket.readable.getReader({ mode: 'byob' }); useBYOB = true } catch (e) { reader = remoteSocket.readable.getReader() }
-	try {
-		if (!useBYOB) {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				if (!value || value.byteLength === 0) continue;
-				hasData = true;
-				await 发送块(value instanceof Uint8Array ? value : new Uint8Array(value));
-			}
-		} else {
-			let mainBuf = new ArrayBuffer(512 * 1024), offset = 0;
-			while (true) {
-				const { done, value } = await reader.read(new Uint8Array(mainBuf, offset, 64 * 1024));
-				if (done) break;
-				if (!value || value.byteLength === 0) continue;
-				hasData = true;
-				mainBuf = value.buffer;
-				const len = value.byteLength;
-				offset += len;
-				if (offset > 0) { const p = new Uint8Array(mainBuf.slice(0, offset)); offset = 0; await 发送块(p); }
-			}
-		}
-	} catch (err) { safeCloseSocket(webSocket) }
-	finally { try { reader.cancel() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
-	if (!hasData && retryFunc) await retryFunc();
-}
-
-async function forwardataTCP(host, portNum, rawData, ws_or_bridge, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
-    try {
-        let socket = await createConnection(host, portNum, proxyCtx);
-        remoteConnWrapper.socket = socket;
-        if (rawData && rawData.byteLength > 0) {
-            const writer = socket.writable.getWriter();
-            await writer.write(rawData);
-            writer.releaseLock();
+async function socks5Connect(addressRemote, portRemote, proxyAddress, addressType = 3) {
+    const { username, password, hostname, port } = proxyAddress;
+    const socket = connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+    await socket.opened;
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+    const encoder = new TextEncoder();
+    let currentBuffer = new Uint8Array(0);
+    async function readExact(len) {
+        const tm = new Promise((_, r) => setTimeout(() => r(new Error('Timeout')), 5000));
+        while (currentBuffer.length < len) {
+            const res = await Promise.race([reader.read(), tm]);
+            if (res.done) throw new Error('Closed');
+            const n = new Uint8Array(currentBuffer.length + res.value.length);
+            n.set(currentBuffer); n.set(res.value, currentBuffer.length);
+            currentBuffer = n;
         }
-        await connectStreams(socket, ws_or_bridge, respHeader, null);
-    } catch(e) {
-        if(ws_or_bridge && typeof ws_or_bridge.close === 'function') ws_or_bridge.close();
-        else safeCloseWebSocket(ws_or_bridge);
+        let ret = currentBuffer.slice(0, len);
+        currentBuffer = currentBuffer.slice(len);
+        return ret;
+    }
+    try {
+        await writer.write(username && password ? new Uint8Array([5, 2, 0, 2]) : new Uint8Array([5, 1, 0]));
+        let authRes = await readExact(2);
+        if (authRes[1] === 0x02) {
+            const userBytes = encoder.encode(username);
+            const passBytes = encoder.encode(password);
+            const authBuf = new Uint8Array(3 + userBytes.length + passBytes.length);
+            authBuf.set([1, userBytes.length], 0);
+            authBuf.set(userBytes, 2);
+            authBuf.set([passBytes.length], 2 + userBytes.length);
+            authBuf.set(passBytes, 3 + userBytes.length);
+            await writer.write(authBuf);
+            let logRes = await readExact(2);
+            if (logRes[1] !== 0x00) throw new Error('Auth fail');
+        }
+        const hostBytes = encoder.encode(addressRemote);
+        const reqBuf = new Uint8Array(5 + hostBytes.length + 2);
+        reqBuf.set([5, 1, 0, 3, hostBytes.length], 0);
+        reqBuf.set(hostBytes, 5);
+        reqBuf.set([portRemote >> 8, portRemote & 0xff], 5 + hostBytes.length);
+        await writer.write(reqBuf);
+        let repRes = await readExact(4);
+        if (repRes[1] !== 0x00) throw new Error('SOCKS5 fail');
+        let bndLen = 0;
+        if (repRes[3] === 1) {
+            bndLen = 4;
+        } else if (repRes[3] === 3) {
+            let dlen = await readExact(1);
+            bndLen = dlen[0];
+        } else if (repRes[3] === 4) {
+            bndLen = 16;
+        }
+        if (bndLen > 0) {
+            await readExact(bndLen + 2);
+        }
+        writer.releaseLock();
+        reader.releaseLock();
+        if (currentBuffer.length > 0) {
+            const ts = new TransformStream();
+            const tsWriter = ts.writable.getWriter();
+            tsWriter.write(currentBuffer);
+            socket.readable.pipeTo(ts.writable).catch(() => safeCloseSocket(socket));
+            return { readable: ts.readable, writable: socket.writable, close: () => safeCloseSocket(socket) };
+        }
+        return socket;
+    } catch (e) {
+        try { writer.releaseLock(); reader.releaseLock(); socket.close(); } catch (err) {}
+        throw e;
     }
 }
-
-function isSpeedTestSite(hostname) {
-	const speedTestDomains = [atob('c3BlZWQuY2xvdWRmbGFyZS5jb20=')];
-	if (speedTestDomains.includes(hostname)) return true;
-	for (const domain of speedTestDomains) {
-		if (hostname.endsWith('.' + domain) || hostname === domain) return true;
-	}
-	return false;
+async function httpConnect(addressRemote, portRemote, proxyAddress) {
+    const { username, password, hostname, port } = proxyAddress;
+    const socket = connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+    await socket.opened;
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+    const encoder = new TextEncoder();
+    try {
+        const authHeader = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
+        const connectRequest = `CONNECT ${addressRemote}:${portRemote} HTTP/1.1\r\nHost: ${addressRemote}:${portRemote}\r\n${authHeader}User-Agent: Mozilla/5.0\r\nConnection: Keep-Alive\r\n\r\n`;
+        await writer.write(encoder.encode(connectRequest));
+        let responseBuffer = new Uint8Array(0);
+        let headerFound = false;
+        const tm = new Promise((_, r) => setTimeout(() => r(new Error('Timeout')), 5000));
+        while (!headerFound) {
+            const res = await Promise.race([reader.read(), tm]);
+            if (res.done) throw new Error('Closed');
+            const newBuffer = new Uint8Array(responseBuffer.length + res.value.length);
+            newBuffer.set(responseBuffer);
+            newBuffer.set(res.value, responseBuffer.length);
+            responseBuffer = newBuffer;
+            const respText = new TextDecoder().decode(responseBuffer);
+            const doubleCRLF = respText.indexOf('\r\n\r\n');
+            const doubleLF = respText.indexOf('\n\n');
+            let endPos = -1, sepLen = 0;
+            if (doubleCRLF !== -1) { endPos = doubleCRLF; sepLen = 4; } 
+            else if (doubleLF !== -1) { endPos = doubleLF; sepLen = 2; }
+            if (endPos !== -1) {
+                const headers = respText.substring(0, endPos);
+                if (!/^HTTP\/\d\.\d\s+2\d\d/i.test(headers)) {
+                    throw new Error('HTTP proxy failed');
+                }
+                const remainingData = responseBuffer.subarray(endPos + sepLen);
+                writer.releaseLock();
+                reader.releaseLock();
+                if (remainingData.length > 0) {
+                    const ts = new TransformStream();
+                    const tsWriter = ts.writable.getWriter();
+                    tsWriter.write(remainingData);
+                    socket.readable.pipeTo(ts.writable).catch(() => safeCloseSocket(socket));
+                    return { readable: ts.readable, writable: socket.writable, close: () => safeCloseSocket(socket) };
+                }
+                return socket;
+            }
+        }
+    } catch (err) {
+        try { writer.releaseLock(); reader.releaseLock(); socket.close(); } catch(e) {}
+        throw err;
+    }
 }
-
-async function handleWSRequest(request, yourUUID, url, proxyCtx) {
-	const WS套接字对 = new WebSocketPair();
-	const [clientSock, serverSock] = Object.values(WS套接字对);
-	serverSock.accept();
-	serverSock.binaryType = 'arraybuffer';
-	let remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let isDnsQuery = false;
-	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-	let 已取消读取 = false, 可读流已结束 = false;
-	const readable = new ReadableStream({
-		start(controller) {
-			const 安全入队 = (data) => { if (已取消读取 || 可读流已结束) return; try { controller.enqueue(data); } catch (err) { 可读流已结束 = true; } };
-			const 安全关闭流 = () => { if (已取消读取 || 可读流已结束) return; 可读流已结束 = true; try { controller.close(); } catch (err) { } };
-			serverSock.addEventListener('message', (event) => { 安全入队(event.data); });
-			serverSock.addEventListener('close', () => { safeCloseWebSocket(serverSock); 安全关闭流(); });
-			serverSock.addEventListener('error', (err) => { safeCloseWebSocket(serverSock); 安全关闭流(); });
-			if (!earlyDataHeader) return;
-			try {
-				const binaryString = atob(earlyDataHeader.replace(/-/g, '+').replace(/_/g, '/'));
-				const bytes = new Uint8Array(binaryString.length);
-				for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-				安全入队(bytes.buffer);
-			} catch (error) {}
-		},
-		cancel() { 已取消读取 = true; 可读流已结束 = true; safeCloseWebSocket(serverSock); }
-	});
-	let 判断协议类型 = null, 当前写入Socket = null, 远端写入器 = null;
-	const 释放远端写入器 = () => { if (远端写入器) { try { 远端写入器.releaseLock() } catch (e) { } 远端写入器 = null; } 当前写入Socket = null; };
-	const 写入远端 = async (chunk, allowRetry = true) => {
-		const socket = remoteConnWrapper.socket;
-		if (!socket) return false;
-		if (socket !== 当前写入Socket) { 释放远端写入器(); 当前写入Socket = socket; 远端写入器 = socket.writable.getWriter(); }
-		try { await 远端写入器.write(chunk); return true; } catch (err) {
-			释放远端写入器();
-			if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await 写入远端(chunk, false); }
-			throw err;
-		}
-	};
-	readable.pipeTo(new WritableStream({
-		async write(chunk) {
-			if (isDnsQuery) return await forwardataudp(chunk, serverSock, null);
-			if (await 写入远端(chunk)) return;
-			if (判断协议类型 === null) {
-                const bytes = new Uint8Array(chunk);
-                判断协议类型 = bytes.byteLength >= 58 && bytes[56] === 0x0d && bytes[57] === 0x0a ? '木马' : '魏烈思';
-			}
-			if (await 写入远端(chunk)) return;
-			if (判断协议类型 === '木马') {
-				const 解析结果 = 解析木马请求(chunk, tp || yourUUID);
-				if (解析结果?.hasError) throw new Error(解析结果.message);
-				const { port, hostname, rawClientData } = 解析结果;
-				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
-				await forwardataTCP(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx);
-			} else {
-				const 解析结果 = 解析魏烈思请求(chunk, yourUUID);
-				if (解析结果?.hasError) throw new Error(解析结果.message);
-				const { port, hostname, rawIndex, version, isUDP } = 解析结果;
-				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
-				if (isUDP) { if (port === 53) isDnsQuery = true; else throw new Error('UDP is not supported'); }
-				const respHeader = new Uint8Array([version[0], 0]);
-				const rawData = chunk.slice(rawIndex);
-				if (isDnsQuery) return forwardataudp(rawData, serverSock, respHeader);
-				await forwardataTCP(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
-			}
-		},
-		close() { 释放远端写入器(); }, abort() { 释放远端写入器(); }
-	})).catch(() => { 释放远端写入器(); safeCloseWebSocket(serverSock); });
-	return new Response(null, { status: 101, webSocket: clientSock });
+function makeReadableWebSocketStream(ws, early) {
+    let cancel = false;
+    const stream = new ReadableStream({
+        start(ctrl) {
+            ws.addEventListener('message', (e) => {
+                if (cancel) return;
+                ctrl.enqueue(e.data);
+            });
+            ws.addEventListener('close', () => {
+                safeCloseWebSocket(ws);
+                if (!cancel) { cancel = true; ctrl.close(); }
+            });
+            ws.addEventListener('error', (e) => {
+                safeCloseWebSocket(ws);
+                if (!cancel) { cancel = true; ctrl.error(e); }
+            });
+            if (early) {
+                const { earlyData, error } = base64ToArrayBuffer(early);
+                if (error) {
+                    ctrl.error(error);
+                } else if (earlyData) {
+                    ctrl.enqueue(earlyData);
+                }
+            }
+        },
+        pull(ctrl) { },
+        cancel() {
+            cancel = true;
+            safeCloseWebSocket(ws);
+        }
+    });
+    return stream;
 }
-
-async function handleGRPCRequest(request, yourUUID, proxyCtx) {
-	if (!request.body) return new Response('Bad Request', { status: 400 });
-	const reader = request.body.getReader();
-	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let isDnsQuery = false, 判断是否是木马 = null, 当前写入Socket = null, 远端写入器 = null;
-	const grpcHeaders = new Headers({ 'Content-Type': 'application/grpc', 'grpc-status': '0', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
-	return new Response(new ReadableStream({
-		async start(controller) {
-			let 已关闭 = false, 发送队列 = [], 队列字节数 = 0, 刷新定时器 = null;
-			const grpcBridge = {
-				readyState: 1,
-				send(data) {
-					if (已关闭) return;
-					const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
-					const lenBytes数组 = [];
-					let remaining = chunk.byteLength >>> 0;
-					while (remaining > 127) { lenBytes数组.push((remaining & 0x7f) | 0x80); remaining >>>= 7; }
-					lenBytes数组.push(remaining);
-					const lenBytes = new Uint8Array(lenBytes数组);
-					const protobufLen = 1 + lenBytes.length + chunk.byteLength;
-					const frame = new Uint8Array(5 + protobufLen);
-					frame[0] = 0; frame[1] = (protobufLen >>> 24) & 0xff; frame[2] = (protobufLen >>> 16) & 0xff; frame[3] = (protobufLen >>> 8) & 0xff; frame[4] = protobufLen & 0xff; frame[5] = 0x0a;
-					frame.set(lenBytes, 6); frame.set(chunk, 6 + lenBytes.length);
-					发送队列.push(frame); 队列字节数 += frame.byteLength;
-					if (队列字节数 >= 64 * 1024) 刷新发送队列(); else if (!刷新定时器) 刷新定时器 = setTimeout(刷新发送队列, 20);
-				},
-				close() {
-					if (this.readyState === 3) return;
-					刷新发送队列(true); 已关闭 = true; this.readyState = 3; try { controller.close() } catch (e) { }
-				}
-			};
-			const 刷新发送队列 = (force = false) => {
-				if (刷新定时器) { clearTimeout(刷新定时器); 刷新定时器 = null; }
-				if ((!force && 已关闭) || 队列字节数 === 0) return;
-				const out = new Uint8Array(队列字节数);
-				let offset = 0;
-				for (const item of 发送队列) { out.set(item, offset); offset += item.byteLength; }
-				发送队列 = []; 队列字节数 = 0;
-				try { controller.enqueue(out); } catch (e) { 已关闭 = true; grpcBridge.readyState = 3; }
-			};
-			const 关闭连接 = () => {
-				if (已关闭) return; 刷新发送队列(true); 已关闭 = true; grpcBridge.readyState = 3;
-				if (刷新定时器) clearTimeout(刷新定时器);
-				if (远端写入器) { try { 远端写入器.releaseLock() } catch (e) { } 远端写入器 = null; }
-				当前写入Socket = null; try { reader.releaseLock() } catch (e) { } try { remoteConnWrapper.socket?.close() } catch (e) { } try { controller.close() } catch (e) { }
-			};
-			const 释放远端写入器 = () => { if (远端写入器) { try { 远端写入器.releaseLock() } catch (e) { } 远端写入器 = null; } 当前写入Socket = null; };
-			const 写入远端 = async (payload, allowRetry = true) => {
-				const socket = remoteConnWrapper.socket; if (!socket) return false;
-				if (socket !== 当前写入Socket) { 释放远端写入器(); 当前写入Socket = socket; 远端写入器 = socket.writable.getWriter(); }
-				try { await 远端写入器.write(payload); return true; } catch (err) {
-					释放远端写入器();
-					if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await 写入远端(payload, false); }
-					throw err;
-				}
-			};
-			try {
-				let pending = new Uint8Array(0);
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					if (!value || value.byteLength === 0) continue;
-					const 当前块 = value instanceof Uint8Array ? value : new Uint8Array(value);
-					const merged = new Uint8Array(pending.length + 当前块.length);
-					merged.set(pending, 0); merged.set(当前块, pending.length); pending = merged;
-					while (pending.byteLength >= 5) {
-						const grpcLen = ((pending[1] << 24) >>> 0) | (pending[2] << 16) | (pending[3] << 8) | pending[4];
-						const frameSize = 5 + grpcLen;
-						if (pending.byteLength < frameSize) break;
-						const grpcPayload = pending.slice(5, frameSize); pending = pending.slice(frameSize);
-						if (!grpcPayload.byteLength) continue;
-						let payload = grpcPayload;
-						if (payload.byteLength >= 2 && payload[0] === 0x0a) {
-							let shift = 0, offset = 1, varint有效 = false;
-							while (offset < payload.length) {
-								const current = payload[offset++];
-								if ((current & 0x80) === 0) { varint有效 = true; break; }
-								shift += 7; if (shift > 35) break;
-							}
-							if (varint有效) payload = payload.slice(offset);
-						}
-						if (!payload.byteLength) continue;
-						if (isDnsQuery) { await forwardataudp(payload, grpcBridge, null); continue; }
-						if (remoteConnWrapper.socket) { if (!(await 写入远端(payload))) throw new Error('Remote socket is not ready'); }
-						else {
-							let 首包buffer;
-							if (payload instanceof ArrayBuffer) 首包buffer = payload;
-							else if (ArrayBuffer.isView(payload)) 首包buffer = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
-							else 首包buffer = new Uint8Array(payload).buffer;
-							const 首包bytes = new Uint8Array(首包buffer);
-							if (判断是否是木马 === null) 判断是否是木马 = 首包bytes.byteLength >= 58 && 首包bytes[56] === 0x0d && 首包bytes[57] === 0x0a;
-							if (判断是否是木马) {
-								const 解析结果 = 解析木马请求(首包buffer, tp || yourUUID);
-								if (解析结果?.hasError) throw new Error(解析结果.message);
-								const { port, hostname, rawClientData } = 解析结果;
-								if (isSpeedTestSite(hostname)) throw new Error('Speedtest blocked');
-								await forwardataTCP(hostname, port, rawClientData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
-							} else {
-								const 解析结果 = 解析魏烈思请求(首包buffer, yourUUID);
-								if (解析结果?.hasError) throw new Error(解析结果.message);
-								const { port, hostname, rawIndex, version, isUDP } = 解析结果;
-								if (isSpeedTestSite(hostname)) throw new Error('Speedtest blocked');
-								if (isUDP) { if (port !== 53) throw new Error('UDP not supported'); isDnsQuery = true; }
-								const respHeader = new Uint8Array([version[0], 0]);
-								grpcBridge.send(respHeader);
-								const rawData = 首包buffer.slice(rawIndex);
-								if (isDnsQuery) await forwardataudp(rawData, grpcBridge, null);
-								else await forwardataTCP(hostname, port, rawData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
-							}
-						}
-					}
-					刷新发送队列();
-				}
-			} catch (err) {} finally { 释放远端写入器(); 关闭连接(); }
-		},
-		cancel() { try { remoteConnWrapper.socket?.close() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
-	}), { status: 200, headers: grpcHeaders });
+async function processVHeader(VLBuffer, uuidSet) {
+    if (VLBuffer.byteLength < 24) {
+        return { hasError: true, message: 'invalid data' };
+    }
+    const view = VLBuffer; 
+    const version = view.subarray(0, 1);
+    const slice = view.subarray(1, 17);
+    const sliceStr = stringify(slice);
+    let isValid = false;
+    let isUDP = false;
+    isValid = uuidSet ? uuidSet.has(sliceStr) : (sliceStr === uid.toLowerCase());
+    if (!isValid) {
+        return { hasError: true, message: 'invalid user' };
+    }
+    const optLen = view[17];
+    const cmd = view[18 + optLen];
+    if (cmd === 2) {
+        isUDP = true;
+    } else if (cmd !== 1) {
+        return { hasError: true, message: `command ${cmd} is not support, command 01-tcp,02-udp,03-mux` };
+    }
+    const portIndex = 18 + optLen + 1;
+    const portRemote = (view[portIndex] << 8) | view[portIndex + 1];
+    let addrIndex = portIndex + 2;
+    const addrType = view[addrIndex];
+    let addrLen = 0;
+    let addrValIndex = addrIndex + 1;
+    let addrVal = '';
+    switch (addrType) {
+        case 1:
+            addrLen = 4;
+            addrVal = view.subarray(addrValIndex, addrValIndex + addrLen).join('.');
+            break;
+        case 2:
+            addrLen = view[addrValIndex];
+            addrValIndex += 1;
+            addrVal = new TextDecoder().decode(view.subarray(addrValIndex, addrValIndex + addrLen));
+            break;
+        case 3:
+            addrLen = 16;
+            const dv = new DataView(VLBuffer.buffer, VLBuffer.byteOffset + addrValIndex, addrLen);
+            const ipv6 =[];
+            for (let i = 0; i < 8; i++) {
+                ipv6.push(dv.getUint16(i * 2).toString(16));
+            }
+            addrVal = ipv6.join(':');
+            break;
+        default:
+            return { hasError: true, message: `invalid addressType is ${addrType}` };
+    }
+    if (!addrVal) {
+        return { hasError: true, message: `addressValue is empty, addressType is ${addrType}` };
+    }
+    return {
+        hasError: false,
+        addressRemote: addrVal,
+        addressType: addrType,
+        portRemote: portRemote,
+        rawDataIndex: addrValIndex + addrLen,
+        VLVersion: version,
+        isUDP: isUDP,
+    };
 }
-
-async function 读取XHTTP首包(reader, token) {
-	const decoder = new TextDecoder();
-	const 密码哈希 = sha224(tp || token);
-	const 密码哈希字节 = new TextEncoder().encode(密码哈希);
-	const 尝试解析VLESS首包 = (data) => {
-		const length = data.byteLength;
-		if (length < 18) return { 状态: 'need_more' };
-		if (formatIdentifier(data.subarray(1, 17)) !== token) return { 状态: 'invalid' };
-		const optLen = data[17]; const cmdIndex = 18 + optLen;
-		if (length < cmdIndex + 1) return { 状态: 'need_more' };
-		const cmd = data[cmdIndex]; if (cmd !== 1 && cmd !== 2) return { 状态: 'invalid' };
-		const portIndex = cmdIndex + 1; if (length < portIndex + 3) return { 状态: 'need_more' };
-		const port = (data[portIndex] << 8) | data[portIndex + 1]; const addressType = data[portIndex + 2];
-		const addressIndex = portIndex + 3; let headerLen = -1, hostname = '';
-		if (addressType === 1) { if (length < addressIndex + 4) return { 状态: 'need_more' }; hostname = `${data[addressIndex]}.${data[addressIndex + 1]}.${data[addressIndex + 2]}.${data[addressIndex + 3]}`; headerLen = addressIndex + 4; }
-		else if (addressType === 2) { if (length < addressIndex + 1) return { 状态: 'need_more' }; const domainLen = data[addressIndex]; if (length < addressIndex + 1 + domainLen) return { 状态: 'need_more' }; hostname = decoder.decode(data.subarray(addressIndex + 1, addressIndex + 1 + domainLen)); headerLen = addressIndex + 1 + domainLen; }
-		else if (addressType === 3) { if (length < addressIndex + 16) return { 状态: 'need_more' }; const ipv6 = []; for (let i = 0; i < 8; i++) { const base = addressIndex + i * 2; ipv6.push(((data[base] << 8) | data[base + 1]).toString(16)); } hostname = ipv6.join(':'); headerLen = addressIndex + 16; }
-		else return { 状态: 'invalid' };
-		if (!hostname) return { 状态: 'invalid' };
-		return { 状态: 'ok', 结果: { 协议: 'vless', hostname, port, isUDP: cmd === 2, rawData: data.subarray(headerLen), respHeader: new Uint8Array([data[0], 0]) } };
-	};
-	const 尝试解析木马首包 = (data) => {
-		const length = data.byteLength;
-		if (length < 58) return { 状态: 'need_more' };
-		if (data[56] !== 0x0d || data[57] !== 0x0a) return { 状态: 'invalid' };
-		for (let i = 0; i < 56; i++) { if (data[i] !== 密码哈希字节[i]) return { 状态: 'invalid' }; }
-		const socksStart = 58; if (length < socksStart + 2) return { 状态: 'need_more' };
-		const cmd = data[socksStart]; if (cmd !== 1) return { 状态: 'invalid' };
-		const atype = data[socksStart + 1]; let cursor = socksStart + 2, hostname = '';
-		if (atype === 1) { if (length < cursor + 4) return { 状态: 'need_more' }; hostname = `${data[cursor]}.${data[cursor + 1]}.${data[cursor + 2]}.${data[cursor + 3]}`; cursor += 4; }
-		else if (atype === 3) { if (length < cursor + 1) return { 状态: 'need_more' }; const domainLen = data[cursor]; if (length < cursor + 1 + domainLen) return { 状态: 'need_more' }; hostname = decoder.decode(data.subarray(cursor + 1, cursor + 1 + domainLen)); cursor += 1 + domainLen; }
-		else if (atype === 4) { if (length < cursor + 16) return { 状态: 'need_more' }; const ipv6 = []; for (let i = 0; i < 8; i++) { const base = cursor + i * 2; ipv6.push(((data[base] << 8) | data[base + 1]).toString(16)); } hostname = ipv6.join(':'); cursor += 16; }
-		else return { 状态: 'invalid' };
-		if (!hostname) return { 状态: 'invalid' };
-		if (length < cursor + 4) return { 状态: 'need_more' };
-		const port = (data[cursor] << 8) | data[cursor + 1];
-		if (data[cursor + 2] !== 0x0d || data[cursor + 3] !== 0x0a) return { 状态: 'invalid' };
-		return { 状态: 'ok', 结果: { 协议: 'trojan', hostname, port, isUDP: false, rawData: data.subarray(cursor + 4), respHeader: null } };
-	};
-	let buffer = new Uint8Array(1024), offset = 0;
-	while (true) {
-		const { value, done } = await reader.read();
-		if (done) { if (offset === 0) return null; break; }
-		const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
-		if (offset + chunk.byteLength > buffer.byteLength) { const newBuffer = new Uint8Array(Math.max(buffer.byteLength * 2, offset + chunk.byteLength)); newBuffer.set(buffer.subarray(0, offset)); buffer = newBuffer; }
-		buffer.set(chunk, offset); offset += chunk.byteLength;
-		const 当前数据 = buffer.subarray(0, offset);
-		const 木马结果 = 尝试解析木马首包(当前数据); if (木马结果.状态 === 'ok') return { ...木马结果.结果, reader };
-		const vless结果 = 尝试解析VLESS首包(当前数据); if (vless结果.状态 === 'ok') return { ...vless结果.结果, reader };
-		if (木马结果.状态 === 'invalid' && vless结果.状态 === 'invalid') return null;
-	}
-	const 最终数据 = buffer.subarray(0, offset);
-	const 最终木马结果 = 尝试解析木马首包(最终数据); if (最终木马结果.状态 === 'ok') return { ...最终木马结果.结果, reader };
-	const 最终VLESS结果 = 尝试解析VLESS首包(最终数据); if (最终VLESS结果.状态 === 'ok') return { ...最终VLESS结果.结果, reader };
-	return null;
+const byteToHex =[];
+for (let i = 0; i < 256; ++i) {
+    byteToHex.push((i + 256).toString(16).slice(1));
 }
-
-async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
-	if (!request.body) return new Response('Bad Request', { status: 400 });
-	const reader = request.body.getReader();
-	const 首包 = await 读取XHTTP首包(reader, yourUUID);
-	if (!首包) { try { reader.releaseLock() } catch (e) { } return new Response('Invalid request', { status: 400 }); }
-	if (isSpeedTestSite(首包.hostname)) { try { reader.releaseLock() } catch (e) { } return new Response('Forbidden', { status: 403 }); }
-	if (首包.isUDP && 首包.port !== 53) { try { reader.releaseLock() } catch (e) { } return new Response('UDP is not supported', { status: 400 }); }
-	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let 当前写入Socket = null, 远端写入器 = null;
-	const responseHeaders = new Headers({ 'Content-Type': 'application/octet-stream', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
-	const 释放远端写入器 = () => { if (远端写入器) { try { 远端写入器.releaseLock() } catch (e) { } 远端写入器 = null; } 当前写入Socket = null; };
-	const 获取远端写入器 = () => { const socket = remoteConnWrapper.socket; if (!socket) return null; if (socket !== 当前写入Socket) { 释放远端写入器(); 当前写入Socket = socket; 远端写入器 = socket.writable.getWriter(); } return 远端写入器; };
-	return new Response(new ReadableStream({
-		async start(controller) {
-			let 已关闭 = false, udpRespHeader = 首包.respHeader;
-			const xhttpBridge = {
-				readyState: 1,
-				send(data) {
-					if (已关闭) return;
-					try { const chunk = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data); controller.enqueue(chunk); }
-					catch (e) { 已关闭 = true; this.readyState = 3; }
-				},
-				close() { if (已关闭) return; 已关闭 = true; this.readyState = 3; try { controller.close() } catch (e) { } }
-			};
-			const 写入远端 = async (payload, allowRetry = true) => {
-				const writer = 获取远端写入器(); if (!writer) return false;
-				try { await writer.write(payload); return true; } catch (err) {
-					释放远端写入器();
-					if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await 写入远端(payload, false); }
-					throw err;
-				}
-			};
-			try {
-				if (首包.isUDP) { if (首包.rawData?.byteLength) { await forwardataudp(首包.rawData, xhttpBridge, udpRespHeader); udpRespHeader = null; } }
-				else await forwardataTCP(首包.hostname, 首包.port, 首包.rawData, xhttpBridge, 首包.respHeader, remoteConnWrapper, yourUUID, proxyCtx);
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					if (!value || value.byteLength === 0) continue;
-					if (首包.isUDP) { await forwardataudp(value, xhttpBridge, udpRespHeader); udpRespHeader = null; }
-					else if (!(await 写入远端(value))) throw new Error('Remote socket is not ready');
-				}
-				if (!首包.isUDP) { const writer = 获取远端写入器(); if (writer) { try { await writer.close() } catch (e) { } } }
-			} catch (err) { safeCloseSocket(xhttpBridge); }
-			finally { 释放远端写入器(); try { reader.releaseLock() } catch (e) { } }
-		},
-		cancel() { 释放远端写入器(); try { remoteConnWrapper.socket?.close() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
-	}), { status: 200, headers: responseHeaders });
+function unsafeStringify(arr, offset = 0) {
+    return (byteToHex[arr[offset + 0]] + byteToHex[arr[offset + 1]] + byteToHex[arr[offset + 2]] + byteToHex[arr[offset + 3]] + "-" + byteToHex[arr[offset + 4]] + byteToHex[arr[offset + 5]] + "-" + byteToHex[arr[offset + 6]] + byteToHex[arr[offset + 7]] + "-" + byteToHex[arr[offset + 8]] + byteToHex[arr[offset + 9]] + "-" + byteToHex[arr[offset + 10]] + byteToHex[arr[offset + 11]] + byteToHex[arr[offset + 12]] + byteToHex[arr[offset + 13]] + byteToHex[arr[offset + 14]] + byteToHex[arr[offset + 15]]).toLowerCase();
 }
-
+function stringify(arr, offset = 0) {
+    const id = unsafeStringify(arr, offset);
+    if (!UUIDUtils.isValidUUID(id)) {
+        throw TypeError("Stringified id is invalid");
+    }
+    return id;
+}
+async function handleUDPO(ws, vh) {
+    if (vh) {
+        if (ws.readyState === WS_READY_STATE_OPEN) {
+            try { ws.send(vh); } catch (e) { }
+        }
+    }
+    const ts = new TransformStream({
+        transform(chunk, ctrl) {
+            for (let i = 0; i < chunk.byteLength;) {
+                let view = chunk;
+                if(chunk instanceof ArrayBuffer) view = new Uint8Array(chunk);
+                const lenBuf = view.subarray(i, i + 2);
+                const len = new DataView(lenBuf.buffer, lenBuf.byteOffset, lenBuf.byteLength).getUint16(0);
+                const data = new Uint8Array(view.subarray(i + 2, i + 2 + len));
+                i = i + 2 + len;
+                ctrl.enqueue({ lenBuf, data });
+            }
+        },
+    });
+    ts.readable.pipeTo(new WritableStream({
+        async write({ lenBuf, data }) {
+            const res = await fetch(dns, {
+                method: 'POST',
+                headers: { 'content-type': 'application/dns-message' },
+                body: data,
+            });
+            const ans = await res.arrayBuffer();
+            const sz = ans.byteLength;
+            const szBuf = new Uint8Array([(sz >> 8) & 0xff, sz & 0xff]);
+            const responseData = new Uint8Array(szBuf.byteLength + ans.byteLength);
+            responseData.set(szBuf, 0);
+            responseData.set(new Uint8Array(ans), szBuf.byteLength);
+            if (ws.readyState === WS_READY_STATE_OPEN) {
+                try { ws.send(responseData); } catch (e) { throw e; }
+            } else {
+                throw new Error("WS Closed");
+            }
+        },
+        close() { safeCloseWebSocket(ws); },
+        abort() { safeCloseWebSocket(ws); }
+    })).catch(() => { safeCloseWebSocket(ws); });
+    const w = ts.writable.getWriter();
+    return {
+        write(chunk) { w.write(chunk); },
+        close() { try { w.releaseLock(); } catch(e) {} }
+    };
+}
+function getFlagEmoji(c) {
+    if (!c || c.length !== 2) return '';
+    const cp = c.toUpperCase().split('').map(char => 127397 + char.charCodeAt());
+    return String.fromCodePoint(...cp);
+}
 function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON) {
-	const uuid = config_JSON.uid;
-	const ECH启用 = config_JSON.transConfig?.ech;
-	const HOSTS = [config_JSON.host];
-	const ECH_SNI = config_JSON.transConfig?.ech_sni || null;
-	const ECH_DNS = "https://dns.alidns.com/dns-query";
-	const gRPCUserAgent = "Mozilla/5.0";
-	const 需要处理gRPC = config_JSON.transConfig?.grpc;
-	const gRPCUserAgentYAML = JSON.stringify(gRPCUserAgent);
-	let clash_yaml = Clash_原始订阅内容.replace(/mode:\s*Rule\b/g, 'mode: rule');
-	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
-	const 添加InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
-		if (/grpc-user-agent\s*:/i.test(inner)) return all;
-		let content = inner.trim(); if (content.endsWith(',')) content = content.slice(0, -1).trim();
-		return `grpc-opts: {${content ? `${content}, grpc-user-agent: ${gRPCUserAgentYAML}` : `grpc-user-agent: ${gRPCUserAgentYAML}`}}`;
-	});
-	const 匹配到gRPC网络 = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
-	const 获取代理类型 = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
-	const 获取凭据值 = (nodeText, isFlowStyle) => {
-		const credentialField = 获取代理类型(nodeText) === 'trojan' ? 'password' : 'uuid';
-		const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
-		return nodeText.match(pattern)?.[1]?.trim() || null;
-	};
-	const 插入NameserverPolicy = (yaml, hostsEntries) => {
-		if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
-		const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (/^dns:\s*$/.test(line)) { inDnsBlock = true; continue; }
-			if (inDnsBlock && /^[a-zA-Z]/.test(line)) { dnsBlockEndIndex = i; break; }
-		}
-		const nameserverPolicyBlock = `  nameserver-policy:\n${hostsEntries}`;
-		if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
-		return lines.join('\n');
-	};
-	const 添加Flow格式gRPCUserAgent = (nodeText) => {
-		if (!匹配到gRPC网络(nodeText) || /grpc-user-agent\s*:/i.test(nodeText)) return nodeText;
-		if (/grpc-opts:\s*\{/i.test(nodeText)) return 添加InlineGrpcUserAgent(nodeText);
-		return nodeText.replace(/\}(\s*)$/, `, grpc-opts: {grpc-user-agent: ${gRPCUserAgentYAML}}}$1`);
-	};
-	const 添加Block格式gRPCUserAgent = (nodeLines, topLevelIndent) => {
-		const 顶级缩进 = ' '.repeat(topLevelIndent); let grpcOptsIndex = -1;
-		for (let idx = 0; idx < nodeLines.length; idx++) {
-			const line = nodeLines[idx]; if (!line.trim()) continue;
-			const indent = line.search(/\S/); if (indent !== topLevelIndent) continue;
-			if (/^\s*grpc-opts:\s*(?:#.*)?$/.test(line) || /^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(line)) { grpcOptsIndex = idx; break; }
-		}
-		if (grpcOptsIndex === -1) {
-			let insertIndex = -1;
-			for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
-			if (insertIndex >= 0) nodeLines.splice(insertIndex + 1, 0, `${顶级缩进}grpc-opts:`, `${顶级缩进}  grpc-user-agent: ${gRPCUserAgentYAML}`);
-			return nodeLines;
-		}
-		const grpcLine = nodeLines[grpcOptsIndex];
-		if (/^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(grpcLine)) { if (!/grpc-user-agent\s*:/i.test(grpcLine)) nodeLines[grpcOptsIndex] = 添加InlineGrpcUserAgent(grpcLine); return nodeLines; }
-		let blockEndIndex = nodeLines.length, 子级缩进 = topLevelIndent + 2, 已有gRPCUserAgent = false;
-		for (let idx = grpcOptsIndex + 1; idx < nodeLines.length; idx++) {
-			const line = nodeLines[idx], trimmed = line.trim(); if (!trimmed) continue;
-			const indent = line.search(/\S/); if (indent <= topLevelIndent) { blockEndIndex = idx; break; }
-			if (indent > topLevelIndent && 子级缩进 === topLevelIndent + 2) 子级缩进 = indent;
-			if (/^grpc-user-agent\s*:/.test(trimmed)) { 已有gRPCUserAgent = true; break; }
-		}
-		if (!已有gRPCUserAgent) nodeLines.splice(blockEndIndex, 0, `${' '.repeat(子级缩进)}grpc-user-agent: ${gRPCUserAgentYAML}`);
-		return nodeLines;
-	};
-	const 添加Block格式ECHOpts = (nodeLines, topLevelIndent) => {
-		let insertIndex = -1;
-		for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
-		if (insertIndex < 0) return nodeLines;
-		const indent = ' '.repeat(topLevelIndent);
-		const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
-		if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
-		nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
-		return nodeLines;
-	};
-	if (!/^dns:\s*(?:\n|$)/m.test(clash_yaml)) clash_yaml = baseDnsBlock + clash_yaml;
-	if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
-	if (ECH启用 && HOSTS.length > 0) {
-		const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
-		clash_yaml = 插入NameserverPolicy(clash_yaml, hostsEntries);
-	}
-	if (!ECH启用 && !需要处理gRPC) return clash_yaml;
-	const lines = clash_yaml.split('\n'); const processedLines = []; let i = 0;
-	while (i < lines.length) {
-		const line = lines[i], trimmedLine = line.trim();
-		if (trimmedLine.startsWith('- {')) {
-			let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
-			while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
-			if (需要处理gRPC) fullNode = 添加Flow格式gRPCUserAgent(fullNode);
-			if (ECH启用 && 获取凭据值(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
-			processedLines.push(fullNode); i++;
-		} else if (trimmedLine.startsWith('- name:')) {
-			let nodeLines = [line], baseIndent = line.search(/\S/), topLevelIndent = baseIndent + 2; i++;
-			while (i < lines.length) {
-				const nextLine = lines[i], nextTrimmed = nextLine.trim();
-				if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
-				const nextIndent = nextLine.search(/\S/);
-				if (nextIndent <= baseIndent && nextTrimmed.startsWith('- ')) break;
-				if (nextIndent < baseIndent && nextTrimmed) break;
-				nodeLines.push(nextLine); i++;
-			}
-			let nodeText = nodeLines.join('\n');
-			if (需要处理gRPC && 匹配到gRPC网络(nodeText)) { nodeLines = 添加Block格式gRPCUserAgent(nodeLines, topLevelIndent); nodeText = nodeLines.join('\n'); }
-			if (ECH启用 && 获取凭据值(nodeText, false) === uuid.trim()) nodeLines = 添加Block格式ECHOpts(nodeLines, topLevelIndent);
-			processedLines.push(...nodeLines);
-		} else { processedLines.push(line); i++; }
-	}
-	return processedLines.join('\n');
+    const uuid = config_JSON.uid;
+    const ECH启用 = config_JSON.transConfig?.ech;
+    const HOSTS = [config_JSON.host];
+    const ECH_SNI = config_JSON.transConfig?.ech_sni || null;
+    const ECH_DNS = "https://dns.alidns.com/dns-query";
+    const gRPCUserAgent = "Mozilla/5.0";
+    const 需要处理gRPC = config_JSON.transConfig?.grpc;
+    const gRPCUserAgentYAML = JSON.stringify(gRPCUserAgent);
+    let clash_yaml = Clash_原始订阅内容.replace(/mode:\s*Rule\b/g, 'mode: rule');
+    const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
+    const 添加InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
+        if (/grpc-user-agent\s*:/i.test(inner)) return all;
+        let content = inner.trim(); if (content.endsWith(',')) content = content.slice(0, -1).trim();
+        return `grpc-opts: {${content ? `${content}, grpc-user-agent: ${gRPCUserAgentYAML}` : `grpc-user-agent: ${gRPCUserAgentYAML}`}}`;
+    });
+    const 匹配到gRPC网络 = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
+    const 获取代理类型 = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
+    const 获取凭据值 = (nodeText, isFlowStyle) => {
+        const credentialField = 获取代理类型(nodeText) === 'trojan' ? 'password' : 'uuid';
+        const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
+        return nodeText.match(pattern)?.[1]?.trim() || null;
+    };
+    const 插入NameserverPolicy = (yaml, hostsEntries) => {
+        if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
+        const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^dns:\s*$/.test(line)) { inDnsBlock = true; continue; }
+            if (inDnsBlock && /^[a-zA-Z]/.test(line)) { dnsBlockEndIndex = i; break; }
+        }
+        const nameserverPolicyBlock = `  nameserver-policy:\n${hostsEntries}`;
+        if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
+        return lines.join('\n');
+    };
+    const 添加Flow格式gRPCUserAgent = (nodeText) => {
+        if (!匹配到gRPC网络(nodeText) || /grpc-user-agent\s*:/i.test(nodeText)) return nodeText;
+        if (/grpc-opts:\s*\{/i.test(nodeText)) return 添加InlineGrpcUserAgent(nodeText);
+        return nodeText.replace(/\}(\s*)$/, `, grpc-opts: {grpc-user-agent: ${gRPCUserAgentYAML}}}$1`);
+    };
+    const 添加Block格式gRPCUserAgent = (nodeLines, topLevelIndent) => {
+        const 顶级缩进 = ' '.repeat(topLevelIndent); let grpcOptsIndex = -1;
+        for (let idx = 0; idx < nodeLines.length; idx++) {
+            const line = nodeLines[idx]; if (!line.trim()) continue;
+            const indent = line.search(/\S/); if (indent !== topLevelIndent) continue;
+            if (/^\s*grpc-opts:\s*(?:#.*)?$/.test(line) || /^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(line)) { grpcOptsIndex = idx; break; }
+        }
+        if (grpcOptsIndex === -1) {
+            let insertIndex = -1;
+            for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
+            if (insertIndex >= 0) nodeLines.splice(insertIndex + 1, 0, `${顶级缩进}grpc-opts:`, `${顶级缩进}  grpc-user-agent: ${gRPCUserAgentYAML}`);
+            return nodeLines;
+        }
+        const grpcLine = nodeLines[grpcOptsIndex];
+        if (/^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(grpcLine)) { if (!/grpc-user-agent\s*:/i.test(grpcLine)) nodeLines[grpcOptsIndex] = 添加InlineGrpcUserAgent(grpcLine); return nodeLines; }
+        let blockEndIndex = nodeLines.length, 子级缩进 = topLevelIndent + 2, 已有gRPCUserAgent = false;
+        for (let idx = grpcOptsIndex + 1; idx < nodeLines.length; idx++) {
+            const line = nodeLines[idx], trimmed = line.trim(); if (!trimmed) continue;
+            const indent = line.search(/\S/); if (indent <= topLevelIndent) { blockEndIndex = idx; break; }
+            if (indent > topLevelIndent && 子级缩进 === topLevelIndent + 2) 子级缩进 = indent;
+            if (/^grpc-user-agent\s*:/.test(trimmed)) { 已有gRPCUserAgent = true; break; }
+        }
+        if (!已有gRPCUserAgent) nodeLines.splice(blockEndIndex, 0, `${' '.repeat(子级缩进)}grpc-user-agent: ${gRPCUserAgentYAML}`);
+        return nodeLines;
+    };
+    const 添加Block格式ECHOpts = (nodeLines, topLevelIndent) => {
+        let insertIndex = -1;
+        for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
+        if (insertIndex < 0) return nodeLines;
+        const indent = ' '.repeat(topLevelIndent);
+        const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
+        if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
+        nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
+        return nodeLines;
+    };
+    if (!/^dns:\s*(?:\n|$)/m.test(clash_yaml)) clash_yaml = baseDnsBlock + clash_yaml;
+    if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
+    if (ECH启用 && HOSTS.length > 0) {
+        const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
+        clash_yaml = 插入NameserverPolicy(clash_yaml, hostsEntries);
+    }
+    if (!ECH启用 && !需要处理gRPC) return clash_yaml;
+    const lines = clash_yaml.split('\n'); const processedLines = []; let i = 0;
+    while (i < lines.length) {
+        const line = lines[i], trimmedLine = line.trim();
+        if (trimmedLine.startsWith('- {')) {
+            let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+            while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
+            if (需要处理gRPC) fullNode = 添加Flow格式gRPCUserAgent(fullNode);
+            if (ECH启用 && 获取凭据值(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
+            processedLines.push(fullNode); i++;
+        } else if (trimmedLine.startsWith('- name:')) {
+            let nodeLines = [line], baseIndent = line.search(/\S/), topLevelIndent = baseIndent + 2; i++;
+            while (i < lines.length) {
+                const nextLine = lines[i], nextTrimmed = nextLine.trim();
+                if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
+                const nextIndent = nextLine.search(/\S/);
+                if (nextIndent <= baseIndent && nextTrimmed.startsWith('- ')) break;
+                if (nextIndent < baseIndent && nextTrimmed) break;
+                nodeLines.push(nextLine); i++;
+            }
+            let nodeText = nodeLines.join('\n');
+            if (需要处理gRPC && 匹配到gRPC网络(nodeText)) { nodeLines = 添加Block格式gRPCUserAgent(nodeLines, topLevelIndent); nodeText = nodeLines.join('\n'); }
+            if (ECH启用 && 获取凭据值(nodeText, false) === uuid.trim()) nodeLines = 添加Block格式ECHOpts(nodeLines, topLevelIndent);
+            processedLines.push(...nodeLines);
+        } else { processedLines.push(line); i++; }
+    }
+    return processedLines.join('\n');
 }
-
 async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, config_JSON) {
-	const uuid = config_JSON.uid;
-	const fingerprint = "chrome";
-	const ECH_SNI = config_JSON.transConfig?.ech_sni || config_JSON.host || null;
-	const ech_config = config_JSON.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI) : null;
-	const sb_json_text = SingBox_原始订阅内容.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
-	try {
-		let config = JSON.parse(sb_json_text);
-		if (Array.isArray(config.inbounds)) {
-			config.inbounds.forEach(inbound => {
-				if (inbound.type === 'tun') {
-					const addresses = [];
-					if (inbound.inet4_address) addresses.push(inbound.inet4_address);
-					if (inbound.inet6_address) addresses.push(inbound.inet6_address);
-					if (addresses.length > 0) { inbound.address = addresses; delete inbound.inet4_address; delete inbound.inet6_address; }
-					const route_addresses = [];
-					if (Array.isArray(inbound.inet4_route_address)) route_addresses.push(...inbound.inet4_route_address);
-					if (Array.isArray(inbound.inet6_route_address)) route_addresses.push(...inbound.inet6_route_address);
-					if (route_addresses.length > 0) { inbound.route_address = route_addresses; delete inbound.inet4_route_address; delete inbound.inet6_route_address; }
-					const route_exclude_addresses = [];
-					if (Array.isArray(inbound.inet4_route_exclude_address)) route_exclude_addresses.push(...inbound.inet4_route_exclude_address);
-					if (Array.isArray(inbound.inet6_route_exclude_address)) route_exclude_addresses.push(...inbound.inet6_route_exclude_address);
-					if (route_exclude_addresses.length > 0) { inbound.route_exclude_address = route_exclude_addresses; delete inbound.inet4_route_exclude_address; delete inbound.inet6_route_exclude_address; }
-				}
-			});
-		}
-		const ruleSetsDefinitions = new Map();
-		const processRules = (rules, isDns = false) => {
-			if (!Array.isArray(rules)) return;
-			rules.forEach(rule => {
-				if (rule.geosite) {
-					const geositeList = Array.isArray(rule.geosite) ? rule.geosite : [rule.geosite];
-					rule.rule_set = geositeList.map(name => {
-						const tag = `geosite-${name}`;
-						if (!ruleSetsDefinitions.has(tag)) ruleSetsDefinitions.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${name}.srs`, download_detour: "DIRECT" });
-						return tag;
-					});
-					delete rule.geosite;
-				}
-				if (rule.geoip) {
-					const geoipList = Array.isArray(rule.geoip) ? rule.geoip : [rule.geoip];
-					rule.rule_set = rule.rule_set || [];
-					geoipList.forEach(name => {
-						const tag = `geoip-${name}`;
-						if (!ruleSetsDefinitions.has(tag)) ruleSetsDefinitions.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${name}.srs`, download_detour: "DIRECT" });
-						rule.rule_set.push(tag);
-					});
-					delete rule.geoip;
-				}
-				const targetField = isDns ? 'server' : 'outbound';
-				const actionValue = String(rule[targetField]).toUpperCase();
-				if (actionValue === 'REJECT' || actionValue === 'BLOCK') { rule.action = 'reject'; rule.method = 'drop'; delete rule[targetField]; }
-			});
-		};
-		if (config.dns && config.dns.rules) processRules(config.dns.rules, true);
-		if (config.route && config.route.rules) processRules(config.route.rules, false);
-		if (ruleSetsDefinitions.size > 0) { if (!config.route) config.route = {}; config.route.rule_set = Array.from(ruleSetsDefinitions.values()); }
-		if (!config.outbounds) config.outbounds = [];
-		config.outbounds = config.outbounds.filter(o => o.tag !== 'REJECT' && o.tag !== 'block');
-		const existingOutboundTags = new Set(config.outbounds.map(o => o.tag));
-		if (!existingOutboundTags.has('DIRECT')) { config.outbounds.push({ "type": "direct", "tag": "DIRECT" }); existingOutboundTags.add('DIRECT'); }
-		if (config.dns && config.dns.servers) {
-			const dnsServerTags = new Set(config.dns.servers.map(s => s.tag));
-			if (config.dns.rules) {
-				config.dns.rules.forEach(rule => {
-					if (rule.server && !dnsServerTags.has(rule.server)) {
-						if (rule.server === 'dns_block' && dnsServerTags.has('block')) rule.server = 'block';
-						else if (rule.server.toLowerCase().includes('block') && !dnsServerTags.has(rule.server)) { config.dns.servers.push({ "tag": rule.server, "address": "rcode://success" }); dnsServerTags.add(rule.server); }
-					}
-				});
-			}
-		}
-		config.outbounds.forEach(outbound => {
-			if (outbound.type === 'selector' || outbound.type === 'urltest') {
-				if (Array.isArray(outbound.outbounds)) {
-					outbound.outbounds = outbound.outbounds.filter(tag => { const upperTag = tag.toUpperCase(); return existingOutboundTags.has(tag) && upperTag !== 'REJECT' && upperTag !== 'BLOCK'; });
-					if (outbound.outbounds.length === 0) outbound.outbounds.push("DIRECT");
-				}
-			}
-		});
-		if (uuid) {
-			config.outbounds.forEach(outbound => {
-				if ((outbound.uuid && outbound.uuid === uuid) || (outbound.password && outbound.password === uuid) || (outbound.method && String(outbound.password).includes(uuid))) {
-					if (!outbound.tls) outbound.tls = { enabled: true };
-					if (fingerprint) outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
-					if (ech_config) outbound.tls.ech = { enabled: true, config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----` };
-				}
-			});
-		}
-		return JSON.stringify(config, null, 2);
-	} catch (e) { return JSON.stringify(JSON.parse(sb_json_text), null, 2); }
+    const uuid = config_JSON.uid;
+    const fingerprint = "chrome";
+    const ECH_SNI = config_JSON.transConfig?.ech_sni || config_JSON.host || null;
+    const ech_config = config_JSON.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI) : null;
+    const sb_json_text = SingBox_原始订阅内容.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
+    try {
+        let config = JSON.parse(sb_json_text);
+        if (Array.isArray(config.inbounds)) {
+            config.inbounds.forEach(inbound => {
+                if (inbound.type === 'tun') {
+                    const addresses = [];
+                    if (inbound.inet4_address) addresses.push(inbound.inet4_address);
+                    if (inbound.inet6_address) addresses.push(inbound.inet6_address);
+                    if (addresses.length > 0) { inbound.address = addresses; delete inbound.inet4_address; delete inbound.inet6_address; }
+                    const route_addresses = [];
+                    if (Array.isArray(inbound.inet4_route_address)) route_addresses.push(...inbound.inet4_route_address);
+                    if (Array.isArray(inbound.inet6_route_address)) route_addresses.push(...inbound.inet6_route_address);
+                    if (route_addresses.length > 0) { inbound.route_address = route_addresses; delete inbound.inet4_route_address; delete inbound.inet6_route_address; }
+                    const route_exclude_addresses = [];
+                    if (Array.isArray(inbound.inet4_route_exclude_address)) route_exclude_addresses.push(...inbound.inet4_route_exclude_address);
+                    if (Array.isArray(inbound.inet6_route_exclude_address)) route_exclude_addresses.push(...inbound.inet6_route_exclude_address);
+                    if (route_exclude_addresses.length > 0) { inbound.route_exclude_address = route_exclude_addresses; delete inbound.inet4_route_exclude_address; delete inbound.inet6_route_exclude_address; }
+                }
+            });
+        }
+        const ruleSetsDefinitions = new Map();
+        const processRules = (rules, isDns = false) => {
+            if (!Array.isArray(rules)) return;
+            rules.forEach(rule => {
+                if (rule.geosite) {
+                    const geositeList = Array.isArray(rule.geosite) ? rule.geosite : [rule.geosite];
+                    rule.rule_set = geositeList.map(name => {
+                        const tag = `geosite-${name}`;
+                        if (!ruleSetsDefinitions.has(tag)) ruleSetsDefinitions.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${name}.srs`, download_detour: "DIRECT" });
+                        return tag;
+                    });
+                    delete rule.geosite;
+                }
+                if (rule.geoip) {
+                    const geoipList = Array.isArray(rule.geoip) ? rule.geoip : [rule.geoip];
+                    rule.rule_set = rule.rule_set || [];
+                    geoipList.forEach(name => {
+                        const tag = `geoip-${name}`;
+                        if (!ruleSetsDefinitions.has(tag)) ruleSetsDefinitions.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${name}.srs`, download_detour: "DIRECT" });
+                        rule.rule_set.push(tag);
+                    });
+                    delete rule.geoip;
+                }
+                const targetField = isDns ? 'server' : 'outbound';
+                const actionValue = String(rule[targetField]).toUpperCase();
+                if (actionValue === 'REJECT' || actionValue === 'BLOCK') { rule.action = 'reject'; rule.method = 'drop'; delete rule[targetField]; }
+            });
+        };
+        if (config.dns && config.dns.rules) processRules(config.dns.rules, true);
+        if (config.route && config.route.rules) processRules(config.route.rules, false);
+        if (ruleSetsDefinitions.size > 0) { if (!config.route) config.route = {}; config.route.rule_set = Array.from(ruleSetsDefinitions.values()); }
+        if (!config.outbounds) config.outbounds = [];
+        config.outbounds = config.outbounds.filter(o => o.tag !== 'REJECT' && o.tag !== 'block');
+        const existingOutboundTags = new Set(config.outbounds.map(o => o.tag));
+        if (!existingOutboundTags.has('DIRECT')) { config.outbounds.push({ "type": "direct", "tag": "DIRECT" }); existingOutboundTags.add('DIRECT'); }
+        if (config.dns && config.dns.servers) {
+            const dnsServerTags = new Set(config.dns.servers.map(s => s.tag));
+            if (config.dns.rules) {
+                config.dns.rules.forEach(rule => {
+                    if (rule.server && !dnsServerTags.has(rule.server)) {
+                        if (rule.server === 'dns_block' && dnsServerTags.has('block')) rule.server = 'block';
+                        else if (rule.server.toLowerCase().includes('block') && !dnsServerTags.has(rule.server)) { config.dns.servers.push({ "tag": rule.server, "address": "rcode://success" }); dnsServerTags.add(rule.server); }
+                    }
+                });
+            }
+        }
+        config.outbounds.forEach(outbound => {
+            if (outbound.type === 'selector' || outbound.type === 'urltest') {
+                if (Array.isArray(outbound.outbounds)) {
+                    outbound.outbounds = outbound.outbounds.filter(tag => { const upperTag = tag.toUpperCase(); return existingOutboundTags.has(tag) && upperTag !== 'REJECT' && upperTag !== 'BLOCK'; });
+                    if (outbound.outbounds.length === 0) outbound.outbounds.push("DIRECT");
+                }
+            }
+        });
+        if (uuid) {
+            config.outbounds.forEach(outbound => {
+                if ((outbound.uuid && outbound.uuid === uuid) || (outbound.password && outbound.password === uuid) || (outbound.method && String(outbound.password).includes(uuid))) {
+                    if (!outbound.tls) outbound.tls = { enabled: true };
+                    if (fingerprint) outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
+                    if (ech_config) outbound.tls.ech = { enabled: true, config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----` };
+                }
+            });
+        }
+        return JSON.stringify(config, null, 2);
+    } catch (e) { return JSON.stringify(JSON.parse(sb_json_text), null, 2); }
 }
-
 function genConfig(u, url) {
     if (!u) return '';
-    const wp = '/?ed=2560', ep = encodeURIComponent(wp);
-    const links = [];
+    const wp = '/?ed=2560';
+    const ep = encodeURIComponent(wp);
+    const links =[];
     if (ev) {
-        const hd = 'vless';
-        links.push(...yx.map(item => {
+        const hd = join('v', 'l', 'e', 's', 's');
+        const vlessLinks = yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
+            const { hostname, port, displayName } = ipData;
             const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
-            return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Vless-' + ipData.displayName)}`;
-        }).filter(Boolean));
+            return `${hd}://${u}@${hostname}:${port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Vless-' + displayName)}`;
+        }).filter(Boolean);
+        links.push(...vlessLinks);
     }
     if (et) {
-        const hd = 'trojan', password = tp || u;
-        links.push(...yx.map(item => {
+        const password = tp || u;
+        const trojanLinks = yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
+            const { hostname, port, displayName } = ipData;
+            const hd = join('t', 'r', 'o', 'j', 'a', 'n');
             const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
-            return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
-        }).filter(Boolean));
+            return `${hd}://${password}@${hostname}:${port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Trojan-' + displayName)}`;
+        }).filter(Boolean);
+        links.push(...trojanLinks);
     }
-    return links.join('\n');
+    if (links.length === 0) {
+        const hd = join('v', 'l', 'e', 's', 's');
+        const vlessLinks = yx.map(item => {
+            const ipData = IPParser.parsePreferredIP(item);
+            if (!ipData) return null;
+            const { hostname, port, displayName } = ipData;
+            const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
+            return `${hd}://${u}@${hostname}:${port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent(displayName)}`;
+        }).filter(Boolean);
+        links.push(...vlessLinks);
+    }
+    const finalConfig = links.join('\n').replace(new RegExp(join('v', 'l', 'e', 's', 's'), 'g'), 'vless').replace(new RegExp(join('t', 'r', 'o', 'j', 'a', 'n'), 'g'), 'trojan');
+    return finalConfig;
 }
-
 async function genSurgeConfig(u, url) {
     if (!u) return '';
     const wp = '/?ed=2560';
-    const nodes = []; const nodeNames = [];
+    const nodes =[];
+    const nodeNames =[];
     if (et) {
         const password = tp || u;
         yx.forEach(item => {
@@ -1568,7 +1833,8 @@ async function genSurgeConfig(u, url) {
             if (!ipData) return;
             const { hostname, port, displayName } = ipData;
             const nodeConfig = `${displayName} = trojan, ${hostname}, ${port}, password=${password}, sni=${url}, skip-cert-verify=true, ws=true, ws-path=${wp}, ws-headers=Host:"${url}", tfo=true`;
-            nodes.push(nodeConfig); nodeNames.push(displayName);
+            nodes.push(nodeConfig);
+            nodeNames.push(displayName);
         });
     }
     if (nodes.length === 0) return '骚年，不用怀疑，你未启用Trojan协议，请到设置里启用Trojan再使用喔！！！';
@@ -1585,32 +1851,6 @@ async function genSurgeConfig(u, url) {
     }
     return `#!MANAGED-CONFIG https://${url}/${u}?format=surge interval=86400 strict=true\n\n[General]\nskip-proxy = 192.168.0.0/24, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.1, localhost, *.local\nexclude-simple-hostnames = true\ndns-server = 223.5.5.5, 114.114.114.114\nwifi-assist = true\nipv6 = false\n\n[Proxy]\n${nodes.join('\n')}\n[Proxy Group]\n🌎 节点选择 = select, ${nodeNames.join(', ')}\n\n[Rule]\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/blocked.list,🌎 节点选择\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/cn.list,DIRECT\nRULE-SET,SYSTEM,🌎 节点选择\nRULE-SET,LAN,DIRECT\nGEOIP,CN,DIRECT\nFINAL, 🌎 节点选择,dns-failed`;
 }
-
-async function sub(req) {
-    const url = new URL(req.url);
-    const host = req.headers.get('Host');
-    const format = url.searchParams.get('format') || url.searchParams.get('target');
-    const target = format;
-    const cfg = genConfig(uid, host);
-    if (target === 'surge') return ResponseBuilder.text(await genSurgeConfig(uid, host));
-    if (target === 'clash' || target === 'singbox') {
-        const backend = cc?.dyhd || dyhd;
-        const config = cc?.dypz || dypz;
-        const rawSubUrl = `https://${host}/${uid}`;
-        const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&list=false&tfo=false&scv=false&fdn=false&sort=false`;
-        try {
-            const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
-            if (res.ok) {
-                let content = await res.text();
-                if (target === 'clash') content = Clash订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig });
-                if (target === 'singbox') content = await Singbox订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig });
-                return ResponseBuilder.text(content);
-            }
-        } catch(e) {}
-    }
-    return ResponseBuilder.text(btoa(cfg));
-}
-
 async function getCloudflareUsage(env) {
     const now = Date.now();
     if (cachedUsage && (now - lastUsageTime < 300000)) {
@@ -1675,7 +1915,6 @@ async function getCloudflareUsage(env) {
         return { success: false, pages: 0, workers: 0, total: 0 };
     }
 }
-
 async function getRequestProxyConfig(request, config) {
     const url = new URL(request.url);
     const { pathname, searchParams } = url;
@@ -1689,8 +1928,8 @@ async function getRequestProxyConfig(request, config) {
     let tempAccount = searchParams.get('socks5') || searchParams.get('http') || proxyCtx.account;
     if (searchParams.has('globalproxy')) proxyCtx.global = true;
     let socksMatch;
-    if ((socksMatch = pathname.match(/\/(socks5?|https?):\/?\/?(.+)/i))) {
-        proxyCtx.enableType = socksMatch[1].toLowerCase().includes('http') ? (socksMatch[1].toLowerCase().includes('https') ? 'https' : 'http') : 'socks5';
+    if ((socksMatch = pathname.match(/\/(socks5?|http):\/?\/?(.+)/i))) {
+        proxyCtx.enableType = socksMatch[1].toLowerCase() === 'http' ? 'http' : 'socks5';
         tempAccount = socksMatch[2].split('#')[0];
         proxyCtx.global = true;
         if (tempAccount.includes('@')) {
@@ -1701,10 +1940,10 @@ async function getRequestProxyConfig(request, config) {
             }
             tempAccount = `${userPassword}@${tempAccount.substring(atIndex + 1)}`;
         }
-    } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?https?)=(.+)/i))) {
+    } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?http)=(.+)/i))) {
         const type = socksMatch[1].toLowerCase();
         tempAccount = socksMatch[2];
-        proxyCtx.enableType = type.includes('http') ? (type.includes('https') ? 'https' : 'http') : 'socks5';
+        proxyCtx.enableType = type.includes('http') ? 'http' : 'socks5';
         proxyCtx.global = type.startsWith('g') || proxyCtx.global;
     }
     if (tempAccount) {
@@ -1717,7 +1956,6 @@ async function getRequestProxyConfig(request, config) {
     }
     return proxyCtx;
 }
-
 async function 获取SOCKS5账号(address) {
     address = address.replace(/^(socks5?|https?|g?s5|g?https?):\/\//i, '');
     if (address.includes('#')) {
@@ -1766,7 +2004,26 @@ async function 获取SOCKS5账号(address) {
     if (!hostname) throw new Error('域名/IP为空');
     return { username, password, hostname, port };
 }
-
+function base64ToArrayBuffer(b64) {
+    if (!b64) {
+        return { error: null };
+    }
+    try {
+        b64 = b64.replace(/-/g, '+').replace(/_/g, '/');
+        const dec = atob(b64);
+        const buf = Uint8Array.from(dec, (c) => c.charCodeAt(0));
+        return { earlyData: buf.buffer, error: null };
+    } catch (e) {
+        return { error: e };
+    }
+}
+function safeBase64(str) {
+    try {
+        return btoa(str);
+    } catch (e) {
+        return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (m, p1) => String.fromCharCode('0x' + p1)));
+    }
+}
 function getCommonCSS() {
     return `
     :root {
@@ -2034,7 +2291,6 @@ function getCommonCSS() {
     .toast.error i { color: #ef4444; }
     `;
 }
-
 function getPoemPage() {
     const mottoes =[
         { content: "天行健，君子以自强不息。", author: "《周易》" },
@@ -2072,7 +2328,6 @@ function getPoemPage() {
 </html>`;
     return ResponseBuilder.html(html);
 }
-
 async function handleUsageAPI(req, env, ctx) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
@@ -2090,7 +2345,6 @@ async function handleUsageAPI(req, env, ctx) {
         usage: { pages: usage.pages, workers: usage.workers, total: usage.total }
     });
 }
-
 async function handleProxyTest(req, env) {
     try {
         const { type, account } = await req.json();
@@ -2103,10 +2357,7 @@ async function handleProxyTest(req, env) {
         if (type === 'socks5') {
             socket = await socks5Connect(targetHost, targetPort, parsedAddress);
         } else if (type === 'http') {
-            const conn = await httpConnect(targetHost, targetPort, parsedAddress, false);
-            socket = conn.close ? conn : { close: () => conn.cancel ? conn.cancel() : null };
-        } else if (type === 'https') {
-            const conn = await httpConnect(targetHost, targetPort, parsedAddress, true);
+            const conn = await httpConnect(targetHost, targetPort, parsedAddress);
             socket = conn.close ? conn : { close: () => conn.cancel ? conn.cancel() : null };
         } else {
             throw new Error("未知的代理协议类型");
@@ -2118,7 +2369,6 @@ async function handleProxyTest(req, env) {
         return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` });
     }
 }
-
 export default {
     async fetch(req, env, ctx) {
         try {
@@ -2131,18 +2381,19 @@ export default {
             const config = await optimizeConfigLoading(env, ctx);
             dns = config.dns || env.DNS_RESOLVER || dns;
             const loginPath = config.klp || 'login';
-
             const upg = req.headers.get('Upgrade');
             const url = new URL(req.url);
             const contentType = req.headers.get('content-type') || '';
-            const proxyCtx = await getRequestProxyConfig(req, config);
             
             if (upg && upg.toLowerCase() === 'websocket') {
-                return await handleWSRequest(req, uid, url, proxyCtx);
+                const proxyCtx = await getRequestProxyConfig(req, config);
+                return await VLOverWSHandler(req, config, proxyCtx);
             } else if (contentType.startsWith('application/grpc')) {
-                return await handleGRPCRequest(req, uid, proxyCtx);
-            } else if (req.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${loginPath}`) {
-                return await handleXHTTPRequest(req, uid, proxyCtx);
+                const proxyCtx = await getRequestProxyConfig(req, config);
+                return await handleGRPCRequest(req, config, proxyCtx);
+            } else if (req.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${loginPath}` && url.pathname !== '/init' && url.pathname !== '/zxyx') {
+                const proxyCtx = await getRequestProxyConfig(req, config);
+                return await handleXHTTPRequest(req, config, proxyCtx);
             }
             
             const pathname = url.pathname;
@@ -2204,7 +2455,6 @@ export default {
         }
     }
 };
-
 function getLoginPage(url, baseUrl, showError = false, showPasswordChanged = false) {
     let msgHtml = '';
     if (showPasswordChanged) msgHtml = `<div class="success-msg">密码已修改，请重新登录</div>`;
@@ -2237,7 +2487,6 @@ function getLoginPage(url, baseUrl, showError = false, showPasswordChanged = fal
 </html>`;
     return ResponseBuilder.html(html);
 }
-
 function getInitPage(url, baseUrl, isFirstTime = true) {
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -2304,7 +2553,6 @@ function validateForm(e) {
 </html>`;
     return ResponseBuilder.html(html);
 }
-
 async function handleInit(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
@@ -2325,7 +2573,6 @@ async function handleInit(req, env) {
         'Set-Cookie': setSessionCookie(newToken)
     });
 }
-
 async function getMainPageContent(host, base, pw, uuid, env) {
     const proxyStatus = cc?.proxyConfig?.enabled 
         ? `<span style="color:#22c55e;">● 已启用 (${cc.proxyConfig.type.toUpperCase()} | ${cc.proxyConfig.global ? '全局' : '分流'})</span>` 
@@ -2386,9 +2633,9 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
             <div class="stat-item">
                 <span class="stat-label">协议</span>
                 <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
-                 <span style="color:${ev?'#22c55e':'#94a3b8'}">Vless ${ev?'●':'○'}</span>
+                 <span style="color:${ev?'#22c55e':'#94a3b8'}">Vless ${ev?'●':'●'}</span>
                   <span style="opacity: 0.2;">|</span>
-                  <span style="color:${et?'#22c55e':'#94a3b8'}">Trojan ${et?'●':'○'}</span>
+                  <span style="color:${et?'#22c55e':'#94a3b8'}">Trojan ${et?'●':'●'}</span>
                 </span>
             </div>
             <div class="stat-item">
@@ -2457,22 +2704,7 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
     
     function copySub(type) {
         const rawSub = '${base}/${uuid}';
-        const backend = '${cc?.dyhd || dyhd}';
-        const config = '${cc?.dypz || dypz}';
-        
-        let url = backend;
-        if (!url.includes('?')) url += '?';
-        if (!url.endsWith('?') && !url.endsWith('&')) url += '&';
-        
-        url += 'target=' + type;
-        url += '&url=' + encodeURIComponent(rawSub);
-        url += '&config=' + encodeURIComponent(config);
-        
-        if(type === 'singbox') {
-            url += '&include=&exclude='; 
-        }
-        
-        url += '&emoji=true&list=false&tfo=false&scv=false&fdn=false&sort=false';
+        let url = rawSub + (rawSub.includes('?') ? '&' : '?') + 'target=' + type;
         copy(url);
     }
 
@@ -2496,7 +2728,34 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
 </html>`;
     return ResponseBuilder.html(html);
 }
-
+async function sub(req) {
+    const url = new URL(req.url);
+    const host = req.headers.get('Host');
+    const format = url.searchParams.get('format') || url.searchParams.get('target');
+    if (format === 'surge') {
+        const cfg = await genSurgeConfig(uid, host);
+        return ResponseBuilder.text(cfg);
+    }
+    const target = format;
+    if (target === 'clash' || target === 'singbox') {
+        const backend = cc?.dyhd || dyhd;
+        const config = cc?.dypz || dypz;
+        const rawSubUrl = `https://${host}/${uid}`;
+        const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&scv=false`;
+        try {
+            const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
+            if (res.ok) {
+                let content = await res.text();
+                if (target === 'clash') content = Clash订阅配置文件热补丁(content, { uid: uid, host: host, transConfig: cc?.transConfig });
+                if (target === 'singbox') content = await Singbox订阅配置文件热补丁(content, { uid: uid, host: host, transConfig: cc?.transConfig });
+                return ResponseBuilder.text(content);
+            }
+        } catch(e) {}
+    }
+    const cfg = genConfig(uid, host);
+    const content = safeBase64(cfg);
+    return ResponseBuilder.text(content);
+}
 async function handleAdminSave(req, env) {
     try {
         const token = getSessionCookie(req.headers.get('Cookie'));
@@ -2514,10 +2773,10 @@ async function handleAdminSave(req, env) {
         const protocolEv = form.get('protocol_ev') === 'on';
         const protocolEt = form.get('protocol_et') === 'on';
         const protocolTp = form.get('protocol_tp');
-        const grpc = form.get('trans_grpc') === 'on';
-        const xhttp = form.get('trans_xhttp') === 'on';
-        const ech = form.get('trans_ech') === 'on';
-        const ech_sni = form.get('trans_ech_sni') || '';
+        const transGrpc = form.get('trans_grpc') === 'on';
+        const transXhttp = form.get('trans_xhttp') === 'on';
+        const transEch = form.get('trans_ech') === 'on';
+        const transEchSni = form.get('trans_ech_sni') || '';
         const cfApiMode = form.get('cf_api_mode');
         let cfAccountId = form.get('cf_account_id');
         const cfApiToken = form.get('cf_api_token');
@@ -2551,7 +2810,7 @@ async function handleAdminSave(req, env) {
         const protocolCfg = { ev: protocolEv, et: protocolEt, tp: protocolTp };
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
-        const transCfg = { grpc, xhttp, ech, ech_sni };
+        const transCfg = { grpc: transGrpc, xhttp: transXhttp, ech: transEch, ech_sni: transEchSni };
         await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg);
         yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns;
         if (u) uid = u;
@@ -2566,7 +2825,6 @@ async function handleAdminSave(req, env) {
         return ResponseBuilder.text(e.message, 500);
     }
 }
-
 async function getAdminPage(req, env) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
@@ -2726,15 +2984,15 @@ async function saveConfig(e) {
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP:端口#备注</code><br>用于 Web 伪装和生成订阅链接。</span></div>
                     </div>
                     <div class="form-group">
-                        <label>反代 IP / 域名 (支持 .william 动态记录)</label>
+                        <label>反代 IP / 域名 / TXT记录 (支持 .william)</label>
                         <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。支持 <code>xxx.william</code> 动态 TXT 获取。</span></div>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>支持 .william 动态获取 TXT 记录内容作为可用代理节点池。</span></div>
                     </div>
                 </div>
             </div>
 
             <div class="card">
-                <h3><i class="fas fa-shield-alt" style="color:#ec4899"></i> 协议与网络传输</h3>
+                <h3><i class="fas fa-shield-alt" style="color:#ec4899"></i> 协议与安全</h3>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>启用协议</label>
@@ -2759,7 +3017,7 @@ async function saveConfig(e) {
                     </div>
                     <div class="form-group">
                         <label>ECH SNI (留空自动获取)</label>
-                        <input type="text" name="trans_ech_sni" value="${cc?.transConfig?.ech_sni||''}" placeholder="例如: cloudflare.com">
+                        <input type="text" name="trans_ech_sni" value="${cc?.transConfig?.ech_sni || ''}">
                     </div>
                 </div>
                 <div class="form-group">
@@ -2777,7 +3035,7 @@ async function saveConfig(e) {
 
             <div class="card">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
-                    <h3 style="margin:0"><i class="fas fa-network-wired" style="color:#f59e0b"></i> 代理转发 (SOCKS5/HTTP/HTTPS)</h3>
+                    <h3 style="margin:0"><i class="fas fa-network-wired" style="color:#f59e0b"></i> 代理转发 (SOCKS5/HTTP)</h3>
                     <button type="button" class="btn btn-secondary" onclick="testProxy()" id="proxy-test-btn" style="width:auto; padding:0.4rem 1rem; font-size:0.85rem;">
                         <i class="fas fa-stethoscope"></i> 测试连通性
                     </button>
@@ -2798,7 +3056,6 @@ async function saveConfig(e) {
                         <select name="proxy_type">
                             <option value="socks5" ${cc?.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
                             <option value="http" ${cc?.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option>
-                            <option value="https" ${cc?.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option>
                         </select>
                     </div>
                 </div>
@@ -2870,9 +3127,9 @@ async function saveConfig(e) {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>DNS DoH 地址 (UDP 53 转发)</label>
+                    <label>DNS DoH 地址 (UDP 53 转发 & 动态获取)</label>
                     <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
-                    <div class="help-text"><i class="fas fa-server"></i><span>必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求及动态配置。</span></div>
+                    <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求以及 ECH 动态获取。</span></div>
                 </div>
             </div>
 
@@ -2902,10 +3159,9 @@ async function saveConfig(e) {
 </html>`;
     return ResponseBuilder.html(html);
 }
-
 async function handleConnectTest(req, env) {
     try {
-        const { socket, server } = await universalConnectWithFailover('www.google.com', 443);
+        const { socket, server } = await universalConnectWithFailover();
         socket.close();
         return ResponseBuilder.json({
             success: true,
@@ -2919,14 +3175,18 @@ async function handleConnectTest(req, env) {
         }, 500);
     }
 }
-
 async function handleDNSTest(req, env) {
     try {
-        const answers = await DoH查询('www.google.com', 'A');
+        const res = await fetch(dns, {
+            method: 'POST',
+            headers: { 'content-type': 'application/dns-message' },
+            body: new Uint8Array([0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1])
+        });
+        const ans = await res.arrayBuffer();
         return ResponseBuilder.json({
             success: true,
             message: 'DNS查询成功',
-            response: answers
+            response: new Uint8Array(ans).slice(0, 100)
         });
     } catch (e) {
         return ResponseBuilder.json({
@@ -2935,7 +3195,6 @@ async function handleDNSTest(req, env) {
         }, 500);
     }
 }
-
 async function handleConfigTest(req, env) {
     try {
         const host = req.headers.get('Host');
@@ -2952,7 +3211,6 @@ async function handleConfigTest(req, env) {
         }, 500);
     }
 }
-
 async function handleFailoverTest(req, env) {
     try {
         const testResults = [];
@@ -2960,29 +3218,19 @@ async function handleFailoverTest(req, env) {
         for (let i = 0; i < servers.length; i++) {
             const s = servers[i];
             try {
-                const resolved = await resolveAddressAndPort(s, 'www.google.com', uid);
-                if(resolved.length > 0) {
-                    const hostname = resolved[0][0];
-                    const port = resolved[0][1];
-                    const socket = await connect({
-                        hostname: hostname,
-                        port: port,
-                        connectTimeout: globalTimeout,
-                        noDelay: true
-                    });
-                    socket.close();
-                    testResults.push({
-                        server: s,
-                        status: 'success',
-                        message: `连接成功 (${hostname}:${port})`
-                    });
-                } else {
-                    testResults.push({
-                        server: s,
-                        status: 'failed',
-                        message: `解析失败`
-                    });
-                }
+                const { hostname, port } = IPParser.parseConnectionAddress(s);
+                const socket = await connect({
+                    hostname: hostname,
+                    port: port,
+                    connectTimeout: globalTimeout,
+                    noDelay: true
+                });
+                socket.close();
+                testResults.push({
+                    server: s,
+                    status: 'success',
+                    message: `连接成功`
+                });
             } catch (e) {
                 testResults.push({
                     server: s,
