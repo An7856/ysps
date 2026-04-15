@@ -1,23 +1,29 @@
 import { connect } from 'cloudflare:sockets';
+
 let p = 'dylj';
 let fdc = [''];
 let uid = '';
-let yx = ['ip.sb', 'time.is', 'cdns.doon.eu.org'];
+let yx =['ip.sb', 'time.is', 'cdns.doon.eu.org'];
 let dns = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
 let dyhd = atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw==');
 let dypz = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ==');
 let stp = '';
-const KP = 'admin_password', KU = 'user_uuid', K_SETTINGS = 'SYSTEM_CONFIG';
+const KP = 'admin_password', KU = 'user_uuid';
+const K_SETTINGS = 'SYSTEM_CONFIG';
 let cc = null, ct = 0, CD = 60 * 1000;
 const STALE_CD = 60 * 60 * 1000;
 const loginAttempts = new Map();
+const join = (...a) => a.join('');
 const SESSION_DURATION = 8 * 60 * 60 * 1000;
-let ev = true, et = false, tp = '';
+let ev = true;
+let et = false;
+let tp = '';
 let protocolConfig = { ev, et, tp };
 let globalTimeout = 8000;
 let cachedUsage = null;
 let lastUsageTime = 0;
 let cachedAdminPwd = null;
+
 const FAILED_IP_CACHE = new Map();
 const FAILED_TTL = 10 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -36,10 +42,16 @@ function uniqueIPList(list) {
         return true;
     });
 }
+
 const UUIDUtils = {
-    generateStandardUUID() { return crypto.randomUUID(); },
-    isValidUUID(uuid) { return UUID_REGEX.test(uuid); }
+    generateStandardUUID() {
+        return crypto.randomUUID();
+    },
+    isValidUUID(uuid) {
+        return UUID_REGEX.test(uuid);
+    }
 };
+
 const IPParser = {
     parsePreferredIP(input) {
         if (!input) return null;
@@ -74,7 +86,9 @@ const IPParser = {
         const defPort = 443;
         let hostname = input.trim();
         let port = defPort;
-        if (hostname.includes('#')) hostname = hostname.split('#')[0].trim();
+        if (hostname.includes('#')) {
+            hostname = hostname.split('#')[0].trim();
+        }
         if (hostname.includes('.tp')) {
             const match = hostname.match(/\.tp(\d+)\./);
             if (match) port = parseInt(match[1]);
@@ -94,25 +108,75 @@ const IPParser = {
         if (countryCode) {
             const flag = getFlagEmoji(countryCode);
             displayName = `${flag} ${countryName} ${hostname}:${port}`;
-        } else if (countryName) displayName = `${countryName} ${hostname}:${port}`;
-        else if (port !== 443) displayName = `${hostname}:${port}`;
+        } else if (countryName) {
+            displayName = `${countryName} ${hostname}:${port}`;
+        } else if (port !== 443) {
+            displayName = `${hostname}:${port}`;
+        }
         return displayName;
     }
 };
+
 const ResponseBuilder = {
-    html(content, status = 200, extraHeaders = {}) { return new Response(content, { status, headers: { 'Content-Type': 'text/html;charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate', ...extraHeaders } }); },
-    text(content, status = 200, extraHeaders = {}) { return new Response(content, { status, headers: { 'Content-Type': 'text/plain;charset=utf-8', 'Cache-Control': 'no-cache, no-store, must-revalidate', ...extraHeaders } }); },
-    json(data, status = 200, extraHeaders = {}) { return new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json;charset=utf-8', ...extraHeaders } }); },
-    redirect(url, status = 302, extraHeaders = {}) { return new Response(null, { status, headers: { 'Location': url, ...extraHeaders } }); }
+    html(content, status = 200, extraHeaders = {}) {
+        return new Response(content, {
+            status,
+            headers: {
+                'Content-Type': 'text/html;charset=utf-8',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                ...extraHeaders
+            }
+        });
+    },
+    text(content, status = 200, extraHeaders = {}) {
+        return new Response(content, {
+            status,
+            headers: {
+                'Content-Type': 'text/plain;charset=utf-8',
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                ...extraHeaders
+            }
+        });
+    },
+    json(data, status = 200, extraHeaders = {}) {
+        return new Response(JSON.stringify(data), {
+            status,
+            headers: {
+                'Content-Type': 'application/json;charset=utf-8',
+                ...extraHeaders
+            }
+        });
+    },
+    redirect(url, status = 302, extraHeaders = {}) {
+        return new Response(null, {
+            status,
+            headers: {
+                'Location': url,
+                ...extraHeaders
+            }
+        });
+    }
 };
+
 const ConfigUtils = {
     async loadAllConfig(env) {
         const kv = env.SJ || env.sj;
         const defaultConfig = {
-            yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns,
-            ev: true, et: false, tp: '',
-            klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
-            cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
+            yx: yx,
+            fdc: fdc,
+            uid: uid,
+            dyhd: dyhd,
+            dypz: dypz,
+            stp: '',
+            dns: dns,
+            ev: true,
+            et: false,
+            tp: '',
+            klp: 'login',
+            uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
+            cfConfig: {},
+            proxyConfig: {},
+            transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
         };
         if (!kv) return defaultConfig;
         try {
@@ -120,27 +184,44 @@ const ConfigUtils = {
             if (unifiedConfig) {
                 const configUid = unifiedConfig.uid || uid;
                 return {
-                    yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
-                    dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns,
-                    ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
-                    cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
-                    klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
+                    yx: unifiedConfig.yx || yx,
+                    fdc: unifiedConfig.fdc || fdc,
+                    uid: configUid,
+                    dyhd: unifiedConfig.dyhd || dyhd,
+                    dypz: unifiedConfig.dypz || dypz,
+                    stp: unifiedConfig.stp || '',
+                    dns: unifiedConfig.dns || dns,
+                    ev: unifiedConfig.protocolConfig?.ev ?? true,
+                    et: unifiedConfig.protocolConfig?.et ?? false,
+                    tp: unifiedConfig.protocolConfig?.tp ?? '',
+                    cfConfig: unifiedConfig.cfConfig || {},
+                    proxyConfig: unifiedConfig.proxyConfig || {},
+                    transConfig: unifiedConfig.transConfig || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
+                    klp: unifiedConfig.klp || 'login',
+                    uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
                 };
             }
         } catch (e) {}
         return defaultConfig;
     }
 };
+
 const ErrorHandler = {
-    internalError(message = 'Internal Server Error') { return ResponseBuilder.text(message, 500); },
-    unauthorized(message = 'Unauthorized') { return ResponseBuilder.text(message, 401); }
+    internalError(message = 'Internal Server Error') {
+        return ResponseBuilder.text(message, 500);
+    },
+    unauthorized(message = 'Unauthorized') {
+        return ResponseBuilder.text(message, 401);
+    }
 };
+
 async function gP(env) {
     if (cachedAdminPwd) return cachedAdminPwd;
     const kv = env.SJ || env.sj;
     cachedAdminPwd = kv ? await kv.get(KP) : null;
     return cachedAdminPwd;
 }
+
 async function sP(env, pw) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
@@ -148,16 +229,19 @@ async function sP(env, pw) {
     cachedAdminPwd = pw;
     return true;
 }
+
 async function gU(env) {
     const kv = env.SJ || env.sj;
     return kv ? await kv.get(KU) : null;
 }
+
 async function sU(env, u) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     await kv.put(KU, u);
     return true;
 }
+
 async function signToken(env, exp) {
     const pwd = await gP(env) || 'default';
     const msg = `${exp}:${pwd}`;
@@ -167,6 +251,7 @@ async function signToken(env, exp) {
     const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
     return btoa(`${exp}:${hashHex}`);
 }
+
 async function validateAndRefreshSession(env, token) {
     if (!token) return { valid: false };
     try {
@@ -187,26 +272,38 @@ async function validateAndRefreshSession(env, token) {
             return { valid: true, refreshed: true, newToken };
         }
         return { valid: true, refreshed: false, newToken: token };
-    } catch (e) { return { valid: false }; }
+    } catch (e) {
+        return { valid: false };
+    }
 }
+
 function getSessionCookie(cookieHeader) {
     if (!cookieHeader) return null;
     const cookies = cookieHeader.split(';');
     for (const cookie of cookies) {
         const [name, value] = cookie.trim().split('=');
-        if (name === 'cf_worker_session' && value) return value;
+        if (name === 'cf_worker_session' && value) {
+            return value;
+        }
     }
     return null;
 }
+
 function setSessionCookie(token) {
     const expires = new Date(Date.now() + SESSION_DURATION).toUTCString();
     return `cf_worker_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=${expires}`;
 }
-function clearSessionCookie() { return `cf_worker_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT`; }
+
+function clearSessionCookie() {
+    return `cf_worker_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+}
+
 async function requireAuth(req, env, handler) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
-    if (!sessionResult.valid) return getPoemPage();
+    if (!sessionResult.valid) {
+        return getPoemPage();
+    }
     if (sessionResult.refreshed) {
         const response = await handler(req, env);
         response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
@@ -214,6 +311,7 @@ async function requireAuth(req, env, handler) {
     }
     return handler(req, env);
 }
+
 async function handleLogin(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
@@ -224,9 +322,13 @@ async function handleLogin(req, env) {
     for (const [ip, data] of loginAttempts) {
         if (now - data.time > 60000) loginAttempts.delete(ip);
     }
-    if (loginAttempts.size > 1000) loginAttempts.delete(loginAttempts.keys().next().value);
+    if (loginAttempts.size > 1000) {
+        loginAttempts.delete(loginAttempts.keys().next().value);
+    }
     const attempt = loginAttempts.get(clientIp) || { count: 0, time: 0 };
-    if (attempt.count > 5 && (now - attempt.time) < 60000) return ResponseBuilder.text('尝试次数过多，请稍后再试', 429);
+    if (attempt.count > 5 && (now - attempt.time) < 60000) {
+        return ResponseBuilder.text('尝试次数过多，请稍后再试', 429);
+    }
     if (req.method === 'POST') {
         const form = await req.formData();
         const password = form.get('password');
@@ -242,19 +344,29 @@ async function handleLogin(req, env) {
             await new Promise(resolve => setTimeout(resolve, 2000));
             return getLoginPage(host, base, true, false);
         }
-    } else return getLoginPage(host, base, false, passwordChanged);
+    } else {
+        return getLoginPage(host, base, false, passwordChanged);
+    }
 }
+
 async function handleLogout(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
-    return ResponseBuilder.redirect(`${base}/`, 302, { 'Set-Cookie': clearSessionCookie() });
+    return ResponseBuilder.redirect(`${base}/`, 302, {
+        'Set-Cookie': clearSessionCookie()
+    });
 }
+
 async function optimizeConfigLoading(env, ctx) {
     const now = Date.now();
-    if (cc && (now - ct) < CD) return cc;
+    if (cc && (now - ct) < CD) {
+        return cc;
+    }
     const loadConfigTask = async () => {
         try {
-            if (env.CONNECT_TIMEOUT) globalTimeout = parseInt(env.CONNECT_TIMEOUT) || 8000;
+            if (env.CONNECT_TIMEOUT) {
+                globalTimeout = parseInt(env.CONNECT_TIMEOUT) || 8000;
+            }
             const config = await ConfigUtils.loadAllConfig(env);
             const newConfig = {
                 ...config,
@@ -264,19 +376,36 @@ async function optimizeConfigLoading(env, ctx) {
             };
             cc = newConfig;
             ct = now;
-            yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns;
-            ev = cc.ev; et = cc.et; tp = cc.tp;
+            yx = cc.yx;
+            fdc = cc.fdc;
+            uid = cc.uid;
+            dyhd = cc.dyhd;
+            dypz = cc.dypz;
+            stp = cc.stp;
+            dns = cc.dns || dns;
+            ev = cc.ev;
+            et = cc.et;
+            tp = cc.tp;
             protocolConfig = { ev, et, tp };
             return cc;
         } catch (error) {
             if (cc) return cc;
             return {
-                yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns,
-                ev: ev, et: et, tp: tp,
+                yx: yx,
+                fdc: fdc,
+                uid: uid,
+                dyhd: dyhd,
+                dypz: dypz,
+                stp: stp,
+                dns: dns,
+                ev: ev,
+                et: et,
+                tp: tp,
                 parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
                 validFDCs: fdc.filter(s => s && s.trim() !== ''),
                 uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
-                proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
+                proxyConfig: {},
+                transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
             };
         }
     };
@@ -286,28 +415,45 @@ async function optimizeConfigLoading(env, ctx) {
     }
     return await loadConfigTask();
 }
+
 async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
-        yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns,
+        yx: cfipArr,
+        fdc: fdipArr,
+        uid: u || uid,
+        dyhd: newDyhd || dyhd,
+        dypz: newDypz || dypz,
+        stp: newStp || stp,
+        dns: newDns || dns,
         protocolConfig: protocolCfg || { ev, et, tp },
-        cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
+        cfConfig: cfCfg || {},
+        proxyConfig: proxyCfg || {},
+        transConfig: transCfg || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
         klp: klp || 'login'
     };
-    const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
+    const ps =[
+        kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))
+    ];
     if (u) ps.push(kv.put(KU, u));
     if (klp) ps.push(kv.put(KP, await gP(env)));
     await Promise.all(ps);
     const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
     cc = {
-        ...unifiedConfig, timestamp: Date.now(),
-        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp,
-        parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fdipArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
+        ...unifiedConfig,
+        timestamp: Date.now(),
+        ev: unifiedConfig.protocolConfig.ev,
+        et: unifiedConfig.protocolConfig.et,
+        tp: unifiedConfig.protocolConfig.tp,
+        parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)),
+        validFDCs: fdipArr.filter(s => s && s.trim() !== ''),
+        uuidSet: uuidSet
     };
     ct = Date.now();
     return true;
 }
+
 async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         const typeMap = { 'A': 1, 'NS': 2, 'CNAME': 5, 'MX': 15, 'TXT': 16, 'AAAA': 28, 'SRV': 33, 'HTTPS': 65 };
@@ -391,6 +537,7 @@ async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.
         return answers;
     } catch (e) { return []; }
 }
+
 async function getECH(host) {
     try {
         const answers = await DoH查询(host, 'HTTPS');
@@ -415,6 +562,7 @@ async function getECH(host) {
         return '';
     } catch { return ''; }
 }
+
 async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
     if (!cachedProxyIPList || cachedProxyIPList.length === 0 || cachedProxyIP !== proxyIP) {
         proxyIP = proxyIP.toLowerCase();
@@ -484,11 +632,21 @@ async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
     }
     return cachedProxyIPList;
 }
+
 async function connectWithTimeout(host, port, timeoutMs) {
-    const socket = connect({ hostname: host, port: port, allowHalfOpen: true, noDelay: true });
+    const socket = connect({
+        hostname: host,
+        port: port,
+        allowHalfOpen: true,
+        secureTransport: 'off',
+        noDelay: true
+    });
     let timer = null;
     const timeoutPromise = new Promise((_, reject) => {
-        timer = setTimeout(() => { try { socket.close(); } catch(e) {} reject(new Error(`Connect timeout`)); }, timeoutMs);
+        timer = setTimeout(() => {
+            try { socket.close(); } catch(e) {}
+            reject(new Error(`Connect timeout`));
+        }, timeoutMs);
     });
     try {
         await Promise.race([socket.opened, timeoutPromise]);
@@ -500,33 +658,82 @@ async function connectWithTimeout(host, port, timeoutMs) {
         if (timer) clearTimeout(timer);
     }
 }
-async function universalConnectWithFailover(targetHost, targetPort) {
+
+async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
     let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
     const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
     if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
-    const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
+    
+    const PRIMARY_TIMEOUT = 3000;
+    const BACKUP_TIMEOUT = 2000;
+    
     const now = Date.now();
-    for (const [ip, time] of FAILED_IP_CACHE) { if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip); }
-    if (FAILED_IP_CACHE.size > 500) FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
-    let lastError = null;
-    for (let i = 0; i < resolvedList.length; i++) {
-        const [hostname, port] = resolvedList[i];
-        const cacheKey = `${hostname}:${port}`;
-        if (!FAILED_IP_CACHE.has(cacheKey)) {
-             try {
-                const socket = await connectWithTimeout(hostname, port, i === 0 ? PRIMARY_TIMEOUT : BACKUP_TIMEOUT);
-                return { socket, server: { hostname, port, original: cacheKey } };
-            } catch (e) {
-                FAILED_IP_CACHE.set(cacheKey, Date.now());
-                lastError = e;
-            }
+    for (const [ip, time] of FAILED_IP_CACHE) {
+        if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
+    }
+    if (FAILED_IP_CACHE.size > 500) {
+        FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
+    }
+    
+    const primaryStr = `${resolvedList[0][0]}:${resolvedList[0][1]}`;
+    if (!FAILED_IP_CACHE.has(primaryStr)) {
+        try {
+            const socket = await connectWithTimeout(resolvedList[0][0], resolvedList[0][1], PRIMARY_TIMEOUT);
+            return { socket, server: { hostname: resolvedList[0][0], port: resolvedList[0][1], original: primaryStr } };
+        } catch (e) {
+            FAILED_IP_CACHE.set(primaryStr, Date.now());
         }
     }
-    throw new Error(`所有节点连接失败: ${lastError?.message}`);
+    
+    let backups = resolvedList.slice(1);
+    let candidates = backups.filter(arr => !FAILED_IP_CACHE.has(`${arr[0]}:${arr[1]}`));
+    
+    if (candidates.length === 0) {
+        if (backups.length > 0) {
+            FAILED_IP_CACHE.clear();
+            FAILED_IP_CACHE.set(primaryStr, Date.now());
+            candidates = backups;
+        } else {
+             throw new Error(`主IP连接失败，且无可用备选IP`);
+        }
+    }
+    
+    for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    
+    let lastError = null;
+    for (const s of candidates) {
+        const cacheKey = `${s[0]}:${s[1]}`;
+        try {
+            const socket = await connectWithTimeout(s[0], s[1], BACKUP_TIMEOUT);
+            return { socket, server: { hostname: s[0], port: s[1], original: cacheKey } };
+        } catch (err) {
+            FAILED_IP_CACHE.set(cacheKey, Date.now());
+            lastError = err;
+        }
+    }
+    throw new Error(`所有节点连接失败 (主节点+备选节点)，最后错误: ${lastError?.message}`);
 }
-function safeCloseWebSocket(socket) { try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) { } }
-function safeCloseSocket(socket) { try { if (socket) socket.close(); } catch (e) { } }
+
+function safeCloseWebSocket(socket) {
+    try {
+        if (socket.readyState === 1 || socket.readyState === 2) {
+            socket.close();
+        }
+    } catch (e) { }
+}
+
+function safeCloseSocket(socket) {
+    try {
+        if (socket) {
+            socket.close();
+        }
+    } catch (e) { }
+}
+
 function sha224(s) {
 	const K = [0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2];
 	const r = (n, b) => ((n >>> b) | (n << (32 - b))) >>> 0;
@@ -559,10 +766,12 @@ function sha224(s) {
 	}
 	return hex;
 }
+
 function formatIdentifier(arr, offset = 0) {
 	const hex = [...arr.slice(offset, offset + 16)].map(b => b.toString(16).padStart(2, '0')).join('');
 	return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}`;
 }
+
 function 解析木马请求(buffer, passwordPlainText) {
 	const sha224Password = sha224(passwordPlainText);
 	if (buffer.byteLength < 56) return { hasError: true, message: "invalid data" };
@@ -589,6 +798,7 @@ function 解析木马请求(buffer, passwordPlainText) {
 	const portRemote = new DataView(portBuffer).getUint16(0);
 	return { hasError: false, addressType: atype, port: portRemote, hostname: address, rawClientData: socks5DataBuffer.slice(portIndex + 4) };
 }
+
 function 解析魏烈思请求(chunk, token) {
 	if (chunk.byteLength < 24) return { hasError: true, message: 'Invalid data' };
 	const version = new Uint8Array(chunk.slice(0, 1));
@@ -610,45 +820,35 @@ function 解析魏烈思请求(chunk, token) {
 	if (!hostname) return { hasError: true, message: `Invalid address` };
 	return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
-async function getUdpWriter(webSocket, respHeader) {
-    if (respHeader) {
-        if (typeof webSocket.send === 'function' && webSocket.readyState === 1) {
-            try { webSocket.send(respHeader); } catch (e) {}
-        }
-    }
-    const ts = new TransformStream({
-        transform(chunk, ctrl) {
-            let i = 0;
-            const view = new Uint8Array(chunk);
-            while (i < view.length) {
-                if (i + 2 > view.length) break;
-                const len = (view[i] << 8) | view[i+1];
-                if (i + 2 + len > view.length) break;
-                const data = view.subarray(i + 2, i + 2 + len);
-                i += 2 + len;
-                ctrl.enqueue({ lenBuf: view.subarray(i - len - 2, i - len), data });
-            }
-        }
-    });
-    ts.readable.pipeTo(new WritableStream({
-        async write({ lenBuf, data }) {
-            try {
-                const res = await fetch(dns, { method: 'POST', headers: { 'content-type': 'application/dns-message' }, body: data });
-                const ans = await res.arrayBuffer();
-                const sz = ans.byteLength;
-                const szBuf = new Uint8Array([(sz >> 8) & 0xff, sz & 0xff]);
-                const responseData = new Uint8Array(szBuf.length + ans.byteLength);
-                responseData.set(szBuf, 0); responseData.set(new Uint8Array(ans), szBuf.length);
-                if (typeof webSocket.send === 'function' && webSocket.readyState === 1) webSocket.send(responseData);
-            } catch(e) {}
-        }
-    })).catch(()=>{});
-    const w = ts.writable.getWriter();
-    return { write(chunk) { w.write(chunk); }, close() { try { w.releaseLock(); } catch(e){} } };
+
+async function forwardataudp(udpChunk, webSocket, respHeader) {
+	try {
+		const tcpSocket = connect({ hostname: '8.8.4.4', port: 53 });
+		let vlessHeader = respHeader;
+		const writer = tcpSocket.writable.getWriter();
+		await writer.write(udpChunk);
+		writer.releaseLock();
+		await tcpSocket.readable.pipeTo(new WritableStream({
+			async write(chunk) {
+				if (webSocket.readyState === 1) {
+					if (vlessHeader) {
+						const response = new Uint8Array(vlessHeader.length + chunk.byteLength);
+						response.set(vlessHeader, 0);
+						response.set(chunk, vlessHeader.length);
+						webSocket.send(response.buffer);
+						vlessHeader = null;
+					} else webSocket.send(chunk);
+				}
+			},
+		}));
+	} catch (error) {}
 }
-async function socks5Connect(targetHost, targetPort, proxyAddress, initialData) {
+
+async function socks5Connect(targetHost, targetPort, proxyAddress) {
 	const { username, password, hostname, port } = proxyAddress;
-	const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
+	const socket = connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+    await socket.opened;
+    const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
 	try {
 		const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
 		await writer.write(authMethods);
@@ -668,25 +868,28 @@ async function socks5Connect(targetHost, targetPort, proxyAddress, initialData) 
 		await writer.write(connectPacket);
 		response = await reader.read();
 		if (response.done || new Uint8Array(response.value)[1] !== 0x00) throw new Error('S5 connection failed');
-		if (initialData && initialData.byteLength > 0) await writer.write(initialData);
+		
 		writer.releaseLock(); reader.releaseLock();
 		return socket;
 	} catch (error) {
-		try { writer.releaseLock() } catch (e) { } try { reader.releaseLock() } catch (e) { } try { socket.close() } catch (e) { }
+		try { writer.releaseLock() } catch (e) { }
+		try { reader.releaseLock() } catch (e) { }
+		try { socket.close() } catch (e) { }
 		throw error;
 	}
 }
-async function httpConnect(targetHost, targetPort, proxyAddress, initialData, HTTPS代理 = false) {
+
+async function httpConnect(targetHost, targetPort, proxyAddress, HTTPS代理 = false) {
 	const { username, password, hostname, port } = proxyAddress;
-	const socket = HTTPS代理 ? connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: false }) : connect({ hostname, port });
-	const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
+	const socket = HTTPS代理 ? connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: true, connectTimeout: globalTimeout, noDelay: true }) : connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+	await socket.opened;
+    const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
 	const encoder = new TextEncoder(), decoder = new TextDecoder();
 	try {
-		if (HTTPS代理) await socket.opened;
 		const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
 		const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}User-Agent: Mozilla/5.0\r\nConnection: keep-alive\r\n\r\n`;
 		await writer.write(encoder.encode(request));
-		writer.releaseLock();
+		
 		let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
 		while (headerEndIndex === -1 && bytesRead < 8192) {
 			const { done, value } = await reader.read();
@@ -701,11 +904,7 @@ async function httpConnect(targetHost, targetPort, proxyAddress, initialData, HT
 		const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
 		if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
 		reader.releaseLock();
-		if (initialData && initialData.byteLength > 0) {
-			const rw = socket.writable.getWriter();
-			await rw.write(initialData);
-			rw.releaseLock();
-		}
+        writer.releaseLock();
 		if (bytesRead > headerEndIndex) {
 			const { readable, writable } = new TransformStream();
 			const transformWriter = writable.getWriter();
@@ -716,74 +915,60 @@ async function httpConnect(targetHost, targetPort, proxyAddress, initialData, HT
 		}
 		return socket;
 	} catch (error) {
-		try { writer.releaseLock() } catch (e) { } try { reader.releaseLock() } catch (e) { } try { socket.close() } catch (e) { }
+		try { writer.releaseLock() } catch (e) { }
+		try { reader.releaseLock() } catch (e) { }
+		try { socket.close() } catch (e) { }
 		throw error;
 	}
 }
-async function createConnection(host, port, proxyCtx, initialData = null) {
+
+async function createConnection(host, port, proxyCtx) {
     const { enableType, global, parsedAddress } = proxyCtx;
     const tryDirect = async () => {
         try {
             const s = connect({ hostname: host, port: port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
             await s.opened;
-            if (initialData && initialData.byteLength > 0) {
-                const writer = s.writable.getWriter();
-                await writer.write(initialData);
-                writer.releaseLock();
-            }
             return s;
-        } catch (e) { return null; }
+        } catch (e) {
+            return null;
+        }
     };
     const tryProxy = async () => {
         if (!enableType || !parsedAddress) return null;
         try {
-            if (enableType === 'socks5') return await socks5Connect(host, port, parsedAddress, initialData);
-            if (enableType === 'http') return await httpConnect(host, port, parsedAddress, initialData, false);
-            if (enableType === 'https') return await httpConnect(host, port, parsedAddress, initialData, true);
-        } catch (e) { return null; }
+            if (enableType === 'socks5') return await socks5Connect(host, port, parsedAddress);
+            if (enableType === 'http') return await httpConnect(host, port, parsedAddress, false);
+            if (enableType === 'https') return await httpConnect(host, port, parsedAddress, true);
+        } catch (e) {
+            return null;
+        }
         return null;
     };
     const tryReverse = async () => {
         try {
             const { socket } = await universalConnectWithFailover(host, port);
-            if (initialData && initialData.byteLength > 0) {
-                const writer = socket.writable.getWriter();
-                await writer.write(initialData);
-                writer.releaseLock();
-            }
             return socket;
-        } catch (e) { return null; }
+        } catch (e) {
+            return null;
+        }
     };
     let sock = null;
-    if (global) { sock = await tryProxy(); if (!sock) sock = await tryDirect(); }
-    else { sock = await tryDirect(); if (!sock) sock = await tryProxy(); }
-    if (!sock) sock = await tryReverse();
-    if (!sock) throw new Error(`连接失败: 直连/代理/反代三层均不可用`);
+    if (global) {
+        sock = await tryProxy();
+        if (!sock) sock = await tryDirect();
+    } else {
+        sock = await tryDirect();
+        if (!sock) sock = await tryProxy();
+    }
+    if (!sock) {
+        sock = await tryReverse();
+    }
+    if (!sock) {
+        throw new Error(`连接失败: 直连/代理/反代三层均不可用. 目标: ${host}:${port}`);
+    }
     return sock;
 }
-async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
-    let 已通过代理发送首包 = false;
-    const connectToRemote = async (允许发送首包 = true) => {
-        if (remoteConnWrapper.connectingPromise) { await remoteConnWrapper.connectingPromise; return; }
-        const 本次发送首包 = 允许发送首包 && !已通过代理发送首包 && rawData && rawData.byteLength > 0;
-        const 本次首包数据 = 本次发送首包 ? rawData : null;
-        const 当前连接任务 = (async () => {
-            const newSocket = await createConnection(host, portNum, proxyCtx, 本次首包数据);
-            if (本次发送首包) 已通过代理发送首包 = true;
-            remoteConnWrapper.socket = newSocket;
-            if(newSocket.closed) {
-                newSocket.closed.catch(() => { }).finally(() => {
-                    if(typeof ws.close === 'function') ws.close(); else if(ws.readyState !== 3) safeCloseWebSocket(ws);
-                });
-            }
-            connectStreams(newSocket, ws, respHeader, null);
-        })();
-        remoteConnWrapper.connectingPromise = 当前连接任务;
-        try { await 当前连接任务; } finally { if (remoteConnWrapper.connectingPromise === 当前连接任务) remoteConnWrapper.connectingPromise = null; }
-    };
-    remoteConnWrapper.retryConnect = async () => connectToRemote(!已通过代理发送首包);
-    await connectToRemote(true);
-}
+
 async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
 	let header = headerData, hasData = false, reader, useBYOB = false;
 	const 发送块 = async (chunk) => {
@@ -822,6 +1007,23 @@ async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
 	finally { try { reader.cancel() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
 	if (!hasData && retryFunc) await retryFunc();
 }
+
+async function forwardataTCP(host, portNum, rawData, ws_or_bridge, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
+    try {
+        let socket = await createConnection(host, portNum, proxyCtx);
+        remoteConnWrapper.socket = socket;
+        if (rawData && rawData.byteLength > 0) {
+            const writer = socket.writable.getWriter();
+            await writer.write(rawData);
+            writer.releaseLock();
+        }
+        await connectStreams(socket, ws_or_bridge, respHeader, null);
+    } catch(e) {
+        if(ws_or_bridge && typeof ws_or_bridge.close === 'function') ws_or_bridge.close();
+        else safeCloseWebSocket(ws_or_bridge);
+    }
+}
+
 function isSpeedTestSite(hostname) {
 	const speedTestDomains = [atob('c3BlZWQuY2xvdWRmbGFyZS5jb20=')];
 	if (speedTestDomains.includes(hostname)) return true;
@@ -830,14 +1032,14 @@ function isSpeedTestSite(hostname) {
 	}
 	return false;
 }
-async function handleWSRequest(request, yourUUID, proxyCtx) {
+
+async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	const WS套接字对 = new WebSocketPair();
 	const [clientSock, serverSock] = Object.values(WS套接字对);
 	serverSock.accept();
 	serverSock.binaryType = 'arraybuffer';
 	let remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
 	let isDnsQuery = false;
-    let udpWriter = null;
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
 	let 已取消读取 = false, 可读流已结束 = false;
 	const readable = new ReadableStream({
@@ -871,11 +1073,7 @@ async function handleWSRequest(request, yourUUID, proxyCtx) {
 	};
 	readable.pipeTo(new WritableStream({
 		async write(chunk) {
-			if (isDnsQuery) {
-                if (!udpWriter) udpWriter = await getUdpWriter(serverSock, null);
-                udpWriter.write(chunk);
-                return;
-            }
+			if (isDnsQuery) return await forwardataudp(chunk, serverSock, null);
 			if (await 写入远端(chunk)) return;
 			if (判断协议类型 === null) {
                 const bytes = new Uint8Array(chunk);
@@ -896,11 +1094,7 @@ async function handleWSRequest(request, yourUUID, proxyCtx) {
 				if (isUDP) { if (port === 53) isDnsQuery = true; else throw new Error('UDP is not supported'); }
 				const respHeader = new Uint8Array([version[0], 0]);
 				const rawData = chunk.slice(rawIndex);
-				if (isDnsQuery) {
-                    if (!udpWriter) udpWriter = await getUdpWriter(serverSock, respHeader);
-                    udpWriter.write(rawData);
-                    return;
-                }
+				if (isDnsQuery) return forwardataudp(rawData, serverSock, respHeader);
 				await forwardataTCP(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
 			}
 		},
@@ -908,11 +1102,12 @@ async function handleWSRequest(request, yourUUID, proxyCtx) {
 	})).catch(() => { 释放远端写入器(); safeCloseWebSocket(serverSock); });
 	return new Response(null, { status: 101, webSocket: clientSock });
 }
+
 async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 	if (!request.body) return new Response('Bad Request', { status: 400 });
 	const reader = request.body.getReader();
 	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let isDnsQuery = false, udpWriter = null, 判断是否是木马 = null, 当前写入Socket = null, 远端写入器 = null;
+	let isDnsQuery = false, 判断是否是木马 = null, 当前写入Socket = null, 远端写入器 = null;
 	const grpcHeaders = new Headers({ 'Content-Type': 'application/grpc', 'grpc-status': '0', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
 	return new Response(new ReadableStream({
 		async start(controller) {
@@ -990,11 +1185,7 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 							if (varint有效) payload = payload.slice(offset);
 						}
 						if (!payload.byteLength) continue;
-						if (isDnsQuery) {
-                            if (!udpWriter) udpWriter = await getUdpWriter(grpcBridge, null);
-                            udpWriter.write(payload);
-                            continue;
-                        }
+						if (isDnsQuery) { await forwardataudp(payload, grpcBridge, null); continue; }
 						if (remoteConnWrapper.socket) { if (!(await 写入远端(payload))) throw new Error('Remote socket is not ready'); }
 						else {
 							let 首包buffer;
@@ -1018,10 +1209,7 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 								const respHeader = new Uint8Array([version[0], 0]);
 								grpcBridge.send(respHeader);
 								const rawData = 首包buffer.slice(rawIndex);
-								if (isDnsQuery) {
-                                    if (!udpWriter) udpWriter = await getUdpWriter(grpcBridge, null);
-                                    udpWriter.write(rawData);
-                                }
+								if (isDnsQuery) await forwardataudp(rawData, grpcBridge, null);
 								else await forwardataTCP(hostname, port, rawData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
 							}
 						}
@@ -1033,6 +1221,7 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 		cancel() { try { remoteConnWrapper.socket?.close() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
 	}), { status: 200, headers: grpcHeaders });
 }
+
 async function 读取XHTTP首包(reader, token) {
 	const decoder = new TextDecoder();
 	const 密码哈希 = sha224(tp || token);
@@ -1089,6 +1278,7 @@ async function 读取XHTTP首包(reader, token) {
 	const 最终VLESS结果 = 尝试解析VLESS首包(最终数据); if (最终VLESS结果.状态 === 'ok') return { ...最终VLESS结果.结果, reader };
 	return null;
 }
+
 async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
 	if (!request.body) return new Response('Bad Request', { status: 400 });
 	const reader = request.body.getReader();
@@ -1097,7 +1287,7 @@ async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
 	if (isSpeedTestSite(首包.hostname)) { try { reader.releaseLock() } catch (e) { } return new Response('Forbidden', { status: 403 }); }
 	if (首包.isUDP && 首包.port !== 53) { try { reader.releaseLock() } catch (e) { } return new Response('UDP is not supported', { status: 400 }); }
 	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let 当前写入Socket = null, 远端写入器 = null, udpWriter = null;
+	let 当前写入Socket = null, 远端写入器 = null;
 	const responseHeaders = new Headers({ 'Content-Type': 'application/octet-stream', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
 	const 释放远端写入器 = () => { if (远端写入器) { try { 远端写入器.releaseLock() } catch (e) { } 远端写入器 = null; } 当前写入Socket = null; };
 	const 获取远端写入器 = () => { const socket = remoteConnWrapper.socket; if (!socket) return null; if (socket !== 当前写入Socket) { 释放远端写入器(); 当前写入Socket = socket; 远端写入器 = socket.writable.getWriter(); } return 远端写入器; };
@@ -1122,19 +1312,13 @@ async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
 				}
 			};
 			try {
-				if (首包.isUDP) { 
-                    if (!udpWriter) udpWriter = await getUdpWriter(xhttpBridge, udpRespHeader);
-                    if (首包.rawData?.byteLength) { udpWriter.write(首包.rawData); udpRespHeader = null; } 
-                }
+				if (首包.isUDP) { if (首包.rawData?.byteLength) { await forwardataudp(首包.rawData, xhttpBridge, udpRespHeader); udpRespHeader = null; } }
 				else await forwardataTCP(首包.hostname, 首包.port, 首包.rawData, xhttpBridge, 首包.respHeader, remoteConnWrapper, yourUUID, proxyCtx);
 				while (true) {
 					const { done, value } = await reader.read();
 					if (done) break;
 					if (!value || value.byteLength === 0) continue;
-					if (首包.isUDP) {
-                        if (!udpWriter) udpWriter = await getUdpWriter(xhttpBridge, udpRespHeader);
-                        udpWriter.write(value); udpRespHeader = null; 
-                    }
+					if (首包.isUDP) { await forwardataudp(value, xhttpBridge, udpRespHeader); udpRespHeader = null; }
 					else if (!(await 写入远端(value))) throw new Error('Remote socket is not ready');
 				}
 				if (!首包.isUDP) { const writer = 获取远端写入器(); if (writer) { try { await writer.close() } catch (e) { } } }
@@ -1144,6 +1328,7 @@ async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
 		cancel() { 释放远端写入器(); try { remoteConnWrapper.socket?.close() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
 	}), { status: 200, headers: responseHeaders });
 }
+
 function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON) {
 	const uuid = config_JSON.uid;
 	const ECH启用 = config_JSON.transConfig?.ech;
@@ -1253,6 +1438,7 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON)
 	}
 	return processedLines.join('\n');
 }
+
 async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, config_JSON) {
 	const uuid = config_JSON.uid;
 	const fingerprint = "chrome";
@@ -1345,34 +1531,7 @@ async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, co
 		return JSON.stringify(config, null, 2);
 	} catch (e) { return JSON.stringify(JSON.parse(sb_json_text), null, 2); }
 }
-async function genSurgeConfig(u, url) {
-    if (!u) return '';
-    const wp = '/?ed=2560';
-    const nodes = []; const nodeNames = [];
-    if (et) {
-        const password = tp || u;
-        yx.forEach(item => {
-            const ipData = IPParser.parsePreferredIP(item);
-            if (!ipData) return;
-            const { hostname, port, displayName } = ipData;
-            const nodeConfig = `${displayName} = trojan, ${hostname}, ${port}, password=${password}, sni=${url}, skip-cert-verify=true, ws=true, ws-path=${wp}, ws-headers=Host:"${url}", tfo=true`;
-            nodes.push(nodeConfig); nodeNames.push(displayName);
-        });
-    }
-    if (nodes.length === 0) return '未启用Trojan协议';
-    if (stp) {
-        try {
-            const response = await fetch(stp);
-            if (response.ok) {
-                let templateContent = await response.text();
-                templateContent = templateContent.replace(/\{nodes\}/g, nodes.join('\n'));
-                templateContent = templateContent.replace(/\{names\}/g, nodeNames.join(', '));
-                return templateContent;
-            }
-        } catch (e) {}
-    }
-    return `#!MANAGED-CONFIG https://${url}/${u}?format=surge interval=86400 strict=true\n\n[General]\nskip-proxy = 192.168.0.0/24, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.1, localhost, *.local\nexclude-simple-hostnames = true\ndns-server = 223.5.5.5, 114.114.114.114\nwifi-assist = true\nipv6 = false\n\n[Proxy]\n${nodes.join('\n')}\n[Proxy Group]\n🌎 节点选择 = select, ${nodeNames.join(', ')}\n\n[Rule]\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/blocked.list,🌎 节点选择\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/cn.list,DIRECT\nRULE-SET,SYSTEM,🌎 节点选择\nRULE-SET,LAN,DIRECT\nGEOIP,CN,DIRECT\nFINAL, 🌎 节点选择,dns-failed`;
-}
+
 function genConfig(u, url) {
     if (!u) return '';
     const wp = '/?ed=2560', ep = encodeURIComponent(wp);
@@ -1397,6 +1556,36 @@ function genConfig(u, url) {
     }
     return links.join('\n');
 }
+
+async function genSurgeConfig(u, url) {
+    if (!u) return '';
+    const wp = '/?ed=2560';
+    const nodes = []; const nodeNames = [];
+    if (et) {
+        const password = tp || u;
+        yx.forEach(item => {
+            const ipData = IPParser.parsePreferredIP(item);
+            if (!ipData) return;
+            const { hostname, port, displayName } = ipData;
+            const nodeConfig = `${displayName} = trojan, ${hostname}, ${port}, password=${password}, sni=${url}, skip-cert-verify=true, ws=true, ws-path=${wp}, ws-headers=Host:"${url}", tfo=true`;
+            nodes.push(nodeConfig); nodeNames.push(displayName);
+        });
+    }
+    if (nodes.length === 0) return '骚年，不用怀疑，你未启用Trojan协议，请到设置里启用Trojan再使用喔！！！';
+    if (stp) {
+        try {
+            const response = await fetch(stp);
+            if (response.ok) {
+                let templateContent = await response.text();
+                templateContent = templateContent.replace(/\{nodes\}/g, nodes.join('\n'));
+                templateContent = templateContent.replace(/\{names\}/g, nodeNames.join(', '));
+                return templateContent;
+            }
+        } catch (e) {}
+    }
+    return `#!MANAGED-CONFIG https://${url}/${u}?format=surge interval=86400 strict=true\n\n[General]\nskip-proxy = 192.168.0.0/24, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.1, localhost, *.local\nexclude-simple-hostnames = true\ndns-server = 223.5.5.5, 114.114.114.114\nwifi-assist = true\nipv6 = false\n\n[Proxy]\n${nodes.join('\n')}\n[Proxy Group]\n🌎 节点选择 = select, ${nodeNames.join(', ')}\n\n[Rule]\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/blocked.list,🌎 节点选择\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/cn.list,DIRECT\nRULE-SET,SYSTEM,🌎 节点选择\nRULE-SET,LAN,DIRECT\nGEOIP,CN,DIRECT\nFINAL, 🌎 节点选择,dns-failed`;
+}
+
 async function sub(req) {
     const url = new URL(req.url);
     const host = req.headers.get('Host');
@@ -1408,7 +1597,7 @@ async function sub(req) {
         const backend = cc?.dyhd || dyhd;
         const config = cc?.dypz || dypz;
         const rawSubUrl = `https://${host}/${uid}`;
-        const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&scv=false`;
+        const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&list=false&tfo=false&scv=false&fdn=false&sort=false`;
         try {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
             if (res.ok) {
@@ -1421,33 +1610,72 @@ async function sub(req) {
     }
     return ResponseBuilder.text(btoa(cfg));
 }
-async function getCloudflareUsageAPI(env) {
+
+async function getCloudflareUsage(env) {
     const now = Date.now();
-    if (cachedUsage && (now - lastUsageTime < 300000)) return cachedUsage;
+    if (cachedUsage && (now - lastUsageTime < 300000)) {
+        return cachedUsage;
+    }
     if (!cc?.cfConfig) return { success: false, pages: 0, workers: 0, total: 0 };
     const { accountId, apiToken } = cc.cfConfig;
-    if (!apiToken) return { success: false, pages: 0, workers: 0, total: 0 };
+    if (!apiToken) {
+        return { success: false, pages: 0, workers: 0, total: 0 };
+    }
     const API = "https://api.cloudflare.com/client/v4";
     const sum = (a) => a?.reduce((t, i) => t + (i?.sum?.requests || 0), 0) || 0;
     const headers = { "Authorization": `Bearer ${apiToken}`, "Content-Type": "application/json" };
     try {
         let AccountID = accountId;
         if (!AccountID) {
-            const r = await fetch(`${API}/accounts`, { method: "GET", headers });
-            if (r.ok) { const d = await r.json(); if (d?.result?.length > 0) AccountID = d.result[0].id; }
+            try {
+                const r = await fetch(`${API}/accounts`, { method: "GET", headers: headers });
+                if (r.ok) {
+                    const d = await r.json();
+                    if (d?.result?.length > 0) {
+                        AccountID = d.result[0].id;
+                    }
+                }
+            } catch (e) {}
         }
         if (!AccountID) return { success: false, pages: 0, workers: 0, total: 0 };
-        const dateNow = new Date(); dateNow.setUTCHours(0, 0, 0, 0);
-        const res = await fetch(`${API}/graphql`, { method: "POST", headers, body: JSON.stringify({ query: `query getBillingMetrics($AccountID: String!, $filter: AccountWorkersInvocationsAdaptiveFilter_InputObject) { viewer { accounts(filter: {accountTag: $AccountID}) { pagesFunctionsInvocationsAdaptiveGroups(limit: 1000, filter: $filter) { sum { requests } } workersInvocationsAdaptive(limit: 10000, filter: $filter) { sum { requests } } } } }`, variables: { AccountID, filter: { datetime_geq: dateNow.toISOString(), datetime_leq: new Date().toISOString() } } }) });
+        const dateNow = new Date();
+        dateNow.setUTCHours(0, 0, 0, 0);
+        const res = await fetch(`${API}/graphql`, {
+            method: "POST",
+            headers: headers,
+            body: JSON.stringify({
+                query: `query getBillingMetrics($AccountID: String!, $filter: AccountWorkersInvocationsAdaptiveFilter_InputObject) {
+                    viewer { accounts(filter: {accountTag: $AccountID}) {
+                        pagesFunctionsInvocationsAdaptiveGroups(limit: 1000, filter: $filter) { sum { requests } }
+                        workersInvocationsAdaptive(limit: 10000, filter: $filter) { sum { requests } }
+                    } }
+                }`,
+                variables: { 
+                    AccountID, 
+                    filter: { 
+                        datetime_geq: dateNow.toISOString(), 
+                        datetime_leq: new Date().toISOString() 
+                    } 
+                }
+            })
+        });
         if (!res.ok) return { success: false, pages: 0, workers: 0, total: 0 };
         const result = await res.json();
+        if (result.errors?.length) return { success: false, pages: 0, workers: 0, total: 0 };
         const acc = result?.data?.viewer?.accounts?.[0];
         if (!acc) return { success: false, pages: 0, workers: 0, total: 0 };
-        const usageResult = { success: true, pages: sum(acc.pagesFunctionsInvocationsAdaptiveGroups), workers: sum(acc.workersInvocationsAdaptive), total: sum(acc.pagesFunctionsInvocationsAdaptiveGroups) + sum(acc.workersInvocationsAdaptive) };
-        cachedUsage = usageResult; lastUsageTime = now;
+        const pages = sum(acc.pagesFunctionsInvocationsAdaptiveGroups);
+        const workers = sum(acc.workersInvocationsAdaptive);
+        const total = pages + workers;
+        const usageResult = { success: true, pages, workers, total };
+        cachedUsage = usageResult;
+        lastUsageTime = now;
         return usageResult;
-    } catch (error) { return { success: false, pages: 0, workers: 0, total: 0 }; }
+    } catch (error) {
+        return { success: false, pages: 0, workers: 0, total: 0 };
+    }
 }
+
 async function getRequestProxyConfig(request, config) {
     const url = new URL(request.url);
     const { pathname, searchParams } = url;
@@ -1461,69 +1689,436 @@ async function getRequestProxyConfig(request, config) {
     let tempAccount = searchParams.get('socks5') || searchParams.get('http') || proxyCtx.account;
     if (searchParams.has('globalproxy')) proxyCtx.global = true;
     let socksMatch;
-    if ((socksMatch = pathname.match(/\/(socks5?|http):\/?\/?(.+)/i))) {
-        proxyCtx.enableType = socksMatch[1].toLowerCase() === 'http' ? 'http' : 'socks5';
+    if ((socksMatch = pathname.match(/\/(socks5?|https?):\/?\/?(.+)/i))) {
+        proxyCtx.enableType = socksMatch[1].toLowerCase().includes('http') ? (socksMatch[1].toLowerCase().includes('https') ? 'https' : 'http') : 'socks5';
         tempAccount = socksMatch[2].split('#')[0];
         proxyCtx.global = true;
         if (tempAccount.includes('@')) {
             const atIndex = tempAccount.lastIndexOf('@');
             let userPassword = tempAccount.substring(0, atIndex).replaceAll('%3D', '=');
-            if (/^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i.test(userPassword) && !userPassword.includes(':')) userPassword = atob(userPassword);
+            if (/^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i.test(userPassword) && !userPassword.includes(':')) {
+                userPassword = atob(userPassword);
+            }
             tempAccount = `${userPassword}@${tempAccount.substring(atIndex + 1)}`;
         }
-    } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?http)=(.+)/i))) {
+    } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?https?)=(.+)/i))) {
         const type = socksMatch[1].toLowerCase();
         tempAccount = socksMatch[2];
-        proxyCtx.enableType = type.includes('http') ? 'http' : 'socks5';
+        proxyCtx.enableType = type.includes('http') ? (type.includes('https') ? 'https' : 'http') : 'socks5';
         proxyCtx.global = type.startsWith('g') || proxyCtx.global;
     }
     if (tempAccount) {
         try {
             proxyCtx.parsedAddress = await 获取SOCKS5账号(tempAccount);
             if (searchParams.get('http')) proxyCtx.enableType = 'http';
-        } catch (err) { proxyCtx.enableType = null; }
+        } catch (err) {
+            proxyCtx.enableType = null;
+        }
     }
     return proxyCtx;
 }
+
 async function 获取SOCKS5账号(address) {
     address = address.replace(/^(socks5?|https?|g?s5|g?https?):\/\//i, '');
-    if (address.includes('#')) address = address.split('#')[0];
+    if (address.includes('#')) {
+        address = address.split('#')[0];
+    }
     address = address.trim();
     if (address.includes('@')) {
         const lastAtIndex = address.lastIndexOf('@');
         let userPassword = address.substring(0, lastAtIndex).replaceAll('%3D', '=');
         const base64Regex = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
-        if (base64Regex.test(userPassword) && !userPassword.includes(':')) { try { userPassword = atob(userPassword); } catch (e) {} }
+        if (base64Regex.test(userPassword) && !userPassword.includes(':')) {
+            try {
+                userPassword = atob(userPassword);
+            } catch (e) {}
+        }
         address = `${userPassword}@${address.substring(lastAtIndex + 1)}`;
     }
     const atIndex = address.lastIndexOf("@");
-    const [hostPart, authPart] = atIndex === -1 ? [address, undefined] : [address.substring(atIndex + 1), address.substring(0, atIndex)];
+    const [hostPart, authPart] = atIndex === -1 ?[address, undefined] :[address.substring(atIndex + 1), address.substring(0, atIndex)];
     let username, password;
-    if (authPart) { const parts = authPart.split(':'); username = parts[0]; password = parts.slice(1).join(':'); }
+    if (authPart) {
+        const parts = authPart.split(':');
+        username = parts[0];
+        password = parts.slice(1).join(':');
+    }
     let hostname, port;
-    if (hostPart.includes("]:")) { const parts = hostPart.split("]:"); hostname = parts[0] + "]"; port = parseInt(parts[1]); }
-    else if (hostPart.startsWith("[")) { hostname = hostPart; port = 80; }
-    else {
+    if (hostPart.includes("]:")) {
+        const parts = hostPart.split("]:");
+        hostname = parts[0] + "]";
+        port = parseInt(parts[1]);
+    } else if (hostPart.startsWith("[")) {
+        hostname = hostPart;
+        port = 80;
+    } else {
         const parts = hostPart.split(":");
-        if (parts.length >= 2) { const portStr = parts.pop().replace(/[^\d]/g, ''); port = parseInt(portStr); hostname = parts.join(':'); }
-        else { hostname = hostPart; port = 80; }
+        if (parts.length >= 2) {
+            const portStr = parts.pop().replace(/[^\d]/g, '');
+            port = parseInt(portStr);
+            hostname = parts.join(':');
+        } else {
+            hostname = hostPart;
+            port = 80;
+        }
     }
     if (isNaN(port)) throw new Error(`端口解析错误: ${address}`);
     if (!hostname) throw new Error('域名/IP为空');
     return { username, password, hostname, port };
 }
+
 function getCommonCSS() {
-    return `:root { --primary: #4f46e5; --primary-hover: #4338ca; --secondary: #64748b; --bg-grad-1: hsla(253,16%,7%,1); --bg-grad-2: hsla(225,39%,30%,1); --bg-grad-3: hsla(339,49%,30%,1); --surface: rgba(255, 255, 255, 0.9); --glass: blur(12px) saturate(180%); --text: #1e293b; --text-light: #64748b; --border: rgba(226, 232, 240, 0.8); --shadow: 0 10px 30px -10px rgba(0,0,0,0.1); --radius: 16px; } @media (prefers-color-scheme: dark) { :root { --primary: #818cf8; --primary-hover: #6366f1; --secondary: #94a3b8; --surface: rgba(30, 41, 59, 0.85); --text: #f1f5f9; --text-light: #94a3b8; --border: rgba(51, 65, 85, 0.8); --shadow: 0 10px 30px -10px rgba(0,0,0,0.5); } } * { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; background-image: radial-gradient(at 0% 0%, var(--bg-grad-1) 0, transparent 50%), radial-gradient(at 50% 0%, var(--bg-grad-2) 0, transparent 50%), radial-gradient(at 100% 0%, var(--bg-grad-3) 0, transparent 50%); background-attachment: fixed; color: var(--text); margin: 0; min-height: 100vh; width: 100vw; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-font-smoothing: antialiased; padding: 1rem; } .card { background: var(--surface); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 2.5rem; width: 100%; max-width: 100%; transition: transform 0.2s ease; } .logo { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block; filter: drop-shadow(0 2px 4px rgba(99, 102, 241, 0.3)); } h1 { font-size: 1.75rem; font-weight: 700; margin: 0 0 0.5rem 0; letter-spacing: -0.025em; } p { color: var(--text-light); line-height: 1.6; margin-bottom: 1.5rem; } .form-group { margin-bottom: 1.25rem; text-align: left; } label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text); } input, select, textarea { width: 100%; max-width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-size: 1rem; transition: all 0.2s; } input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); background: rgba(255,255,255,0.1); } .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 0.875rem 1.5rem; border-radius: 0.75rem; background: linear-gradient(135deg, var(--primary) 0%, #a855f7 100%); color: white; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; text-decoration: none; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4); gap: 0.5rem; white-space: nowrap; font-size: 1rem; } .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.5); filter: brightness(1.1); } .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); box-shadow: none; font-size: 1rem; padding: 0.875rem 1.5rem; } .btn-secondary:hover { background: rgba(255,255,255,0.05); box-shadow: none; } .error-msg { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; margin-bottom: 1.5rem; } .success-msg { background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); color: #22c55e; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; margin-bottom: 1.5rem; } .footer { margin-top: 2rem; font-size: 0.875rem; color: var(--text-light); opacity: 0.8; } .toggle-switch { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; } .toggle-switch input { appearance: none; -webkit-appearance: none; width: 1.2rem; height: 1.2rem; border: 2px solid var(--border); background: rgba(255,255,255,0.05); cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; flex-shrink: 0; } .toggle-switch input:checked { background: var(--primary); border-color: var(--primary); } .toggle-switch input[type="checkbox"] { border-radius: 6px; } .toggle-switch input[type="radio"] { border-radius: 50%; } .toggle-switch input::after { content: ''; position: absolute; opacity: 0; transition: opacity 0.2s; } .toggle-switch input[type="checkbox"]::after { width: 4px; height: 8px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); } .toggle-switch input[type="radio"]::after { width: 6px; height: 6px; background: white; border-radius: 50%; } .toggle-switch input:checked::after { opacity: 1; } @keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } } .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; display: inline-block; margin-right: 6px; animation: pulse-green 2s infinite; } .toast-container { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; } .toast { background: var(--surface); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 12px 24px; border-radius: 50px; box-shadow: var(--shadow); color: var(--text); font-weight: 500; font-size: 0.95rem; display: flex; align-items: center; gap: 10px; opacity: 0; transform: translateY(-20px); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); pointer-events: auto; border: 1px solid var(--border); } .toast.show { opacity: 1; transform: translateY(0); } .toast.success { border-color: rgba(34, 197, 94, 0.5); } .toast.success i { color: #22c55e; } .toast.error { border-color: rgba(239, 68, 68, 0.5); } .toast.error i { color: #ef4444; }`;
+    return `
+    :root {
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --secondary: #64748b;
+        --bg-grad-1: hsla(253,16%,7%,1);
+        --bg-grad-2: hsla(225,39%,30%,1);
+        --bg-grad-3: hsla(339,49%,30%,1);
+        --surface: rgba(255, 255, 255, 0.9);
+        --glass: blur(12px) saturate(180%);
+        --text: #1e293b;
+        --text-light: #64748b;
+        --border: rgba(226, 232, 240, 0.8);
+        --shadow: 0 10px 30px -10px rgba(0,0,0,0.1);
+        --radius: 16px;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --primary: #818cf8;
+            --primary-hover: #6366f1;
+            --secondary: #94a3b8;
+            --surface: rgba(30, 41, 59, 0.85);
+            --text: #f1f5f9;
+            --text-light: #94a3b8;
+            --border: rgba(51, 65, 85, 0.8);
+            --shadow: 0 10px 30px -10px rgba(0,0,0,0.5);
+        }
+    }
+    * { box-sizing: border-box; }
+    body {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background-color: #0f172a;
+        background-image: 
+            radial-gradient(at 0% 0%, var(--bg-grad-1) 0, transparent 50%), 
+            radial-gradient(at 50% 0%, var(--bg-grad-2) 0, transparent 50%), 
+            radial-gradient(at 100% 0%, var(--bg-grad-3) 0, transparent 50%);
+        background-attachment: fixed;
+        color: var(--text);
+        margin: 0;
+        min-height: 100vh;
+        width: 100vw;
+        overflow-x: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        -webkit-font-smoothing: antialiased;
+        padding: 1rem;
+    }
+    .card {
+        background: var(--surface);
+        backdrop-filter: var(--glass);
+        -webkit-backdrop-filter: var(--glass);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        padding: 2.5rem;
+        width: 100%;
+        max-width: 100%;
+        transition: transform 0.2s ease;
+    }
+    .logo {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        display: inline-block;
+        filter: drop-shadow(0 2px 4px rgba(99, 102, 241, 0.3));
+    }
+    h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        margin: 0 0 0.5rem 0;
+        letter-spacing: -0.025em;
+    }
+    p {
+        color: var(--text-light);
+        line-height: 1.6;
+        margin-bottom: 1.5rem;
+    }
+    .form-group {
+        margin-bottom: 1.25rem;
+        text-align: left;
+    }
+    label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        margin-bottom: 0.5rem;
+        color: var(--text);
+    }
+    input, select, textarea {
+        width: 100%;
+        max-width: 100%;
+        padding: 0.75rem 1rem;
+        border-radius: 0.75rem;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.05);
+        color: var(--text);
+        font-size: 1rem;
+        transition: all 0.2s;
+    }
+    input:focus, select:focus, textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+        background: rgba(255,255,255,0.1);
+    }
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        padding: 0.875rem 1.5rem;
+        border-radius: 0.75rem;
+        background: linear-gradient(135deg, var(--primary) 0%, #a855f7 100%);
+        color: white;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+        box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4);
+        gap: 0.5rem;
+        white-space: nowrap;
+        font-size: 1rem;
+    }
+    .btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.5);
+        filter: brightness(1.1);
+    }
+    .btn-secondary {
+        background: transparent;
+        border: 1px solid var(--border);
+        color: var(--text);
+        box-shadow: none;
+        font-size: 1rem;
+        padding: 0.875rem 1.5rem;
+    }
+    .btn-secondary:hover {
+        background: rgba(255,255,255,0.05);
+        box-shadow: none;
+    }
+    .error-msg {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px solid rgba(239, 68, 68, 0.2);
+        color: #ef4444;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        margin-bottom: 1.5rem;
+    }
+    .success-msg {
+        background: rgba(34, 197, 94, 0.1);
+        border: 1px solid rgba(34, 197, 94, 0.2);
+        color: #22c55e;
+        padding: 0.75rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        margin-bottom: 1.5rem;
+        transition: all 0.5s ease;
+    }
+    .footer {
+        margin-top: 2rem;
+        font-size: 0.875rem;
+        color: var(--text-light);
+        opacity: 0.8;
+    }
+    .toggle-switch {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        cursor: pointer;
+        user-select: none;
+    }
+    .toggle-switch input {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 1.2rem;
+        height: 1.2rem;
+        border: 2px solid var(--border);
+        background: rgba(255,255,255,0.05);
+        cursor: pointer;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+    }
+    .toggle-switch input:checked {
+        background: var(--primary);
+        border-color: var(--primary);
+    }
+    .toggle-switch input[type="checkbox"] { border-radius: 6px; }
+    .toggle-switch input[type="radio"] { border-radius: 50%; }
+    .toggle-switch input::after {
+        content: '';
+        position: absolute;
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+    .toggle-switch input[type="checkbox"]::after {
+        width: 4px;
+        height: 8px;
+        border: solid white;
+        border-width: 0 2px 2px 0;
+        transform: rotate(45deg) translate(-1px, -1px);
+    }
+    .toggle-switch input[type="radio"]::after {
+        width: 6px;
+        height: 6px;
+        background: white;
+        border-radius: 50%;
+    }
+    .toggle-switch input:checked::after { opacity: 1; }
+    @keyframes pulse-green {
+        0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+        70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+    }
+    .status-dot {
+        height: 10px; width: 10px; background-color: #22c55e;
+        border-radius: 50%; display: inline-block;
+        margin-right: 6px;
+        animation: pulse-green 2s infinite;
+    }
+    .toast-container {
+        position: fixed;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10000;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        pointer-events: none;
+    }
+    .toast {
+        background: var(--surface);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        padding: 12px 24px;
+        border-radius: 50px;
+        box-shadow: var(--shadow);
+        color: var(--text);
+        font-weight: 500;
+        font-size: 0.95rem;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        opacity: 0;
+        transform: translateY(-20px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        pointer-events: auto;
+        border: 1px solid var(--border);
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.success { border-color: rgba(34, 197, 94, 0.5); }
+    .toast.success i { color: #22c55e; }
+    .toast.error { border-color: rgba(239, 68, 68, 0.5); }
+    .toast.error i { color: #ef4444; }
+    `;
 }
-function getFlagEmoji(c) {
-    if (!c || c.length !== 2) return '';
-    const cp = c.toUpperCase().split('').map(char => 127397 + char.charCodeAt());
-    return String.fromCodePoint(...cp);
-}
+
 function getPoemPage() {
-    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>404</title><style>${getCommonCSS()}</style></head><body><div style="width: 100%; max-width: 440px;"><div class="card" style="text-align: center;"><div class="logo">🍃</div><h1 style="margin-bottom: 1.5rem;">404 Not Found</h1><div id="time" style="font-family: monospace; color: var(--text-light);">Loading...</div></div></div><script>function updateTime() { document.getElementById('time').innerText = new Date().toLocaleString('zh-CN'); } setInterval(updateTime, 1000); updateTime();</script></body></html>`;
-    return ResponseBuilder.html(html, 404);
+    const mottoes =[
+        { content: "天行健，君子以自强不息。", author: "《周易》" },
+        { content: "满招损，谦受益。", author: "《尚书》" },
+        { content: "知行合一，止于至善。", author: "王阳明" },
+        { content: "海纳百川，有容乃大。", author: "林则徐" },
+        { content: "不积跬步，无以至千里。", author: "荀子" }
+    ];
+    const motto = mottoes[Math.floor(Math.random() * mottoes.length)];
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>每日一言</title>
+<style>${getCommonCSS()}</style>
+</head>
+<body>
+    <div style="width: 100%; max-width: 440px;">
+        <div class="card" style="text-align: center;">
+            <div class="logo">🍃</div>
+            <h1 style="margin-bottom: 1.5rem;">每日一言</h1>
+            <p style="font-size: 1.25rem; font-weight: 500; color: var(--text); margin-bottom: 0.5rem;">“${motto.content}”</p>
+            <p style="font-size: 0.875rem; margin-bottom: 2rem;">— ${motto.author}</p>
+            <div id="time" style="font-family: monospace; color: var(--text-light);">Loading...</div>
+            <div style="margin-top: 1.5rem; font-size: 0.75rem; opacity: 0.5;">刷新页面获取新灵感</div>
+        </div>
+    </div>
+    <script>
+        function updateTime() {
+            document.getElementById('time').innerText = new Date().toLocaleString('zh-CN');
+        }
+        setInterval(updateTime, 1000); updateTime();
+    </script>
+</body>
+</html>`;
+    return ResponseBuilder.html(html);
 }
+
+async function handleUsageAPI(req, env, ctx) {
+    const token = getSessionCookie(req.headers.get('Cookie'));
+    const sessionResult = await validateAndRefreshSession(env, token);
+    if (!sessionResult.valid) {
+        return ResponseBuilder.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+    const config = await optimizeConfigLoading(env, ctx);
+    const hasCloudflareConfig = config?.cfConfig && config.cfConfig.apiToken;
+    if (!hasCloudflareConfig) {
+        return ResponseBuilder.json({ success: false, error: 'Cloudflare API not configured' }, 400);
+    }
+    const usage = await getCloudflareUsage(env);
+    return ResponseBuilder.json({ 
+        success: usage.success, 
+        usage: { pages: usage.pages, workers: usage.workers, total: usage.total }
+    });
+}
+
+async function handleProxyTest(req, env) {
+    try {
+        const { type, account } = await req.json();
+        if (!account) throw new Error("节点地址为空");
+        const parsedAddress = await 获取SOCKS5账号(account);
+        const targetHost = "www.google.com";
+        const targetPort = 80;
+        const startTime = Date.now();
+        let socket;
+        if (type === 'socks5') {
+            socket = await socks5Connect(targetHost, targetPort, parsedAddress);
+        } else if (type === 'http') {
+            const conn = await httpConnect(targetHost, targetPort, parsedAddress, false);
+            socket = conn.close ? conn : { close: () => conn.cancel ? conn.cancel() : null };
+        } else if (type === 'https') {
+            const conn = await httpConnect(targetHost, targetPort, parsedAddress, true);
+            socket = conn.close ? conn : { close: () => conn.cancel ? conn.cancel() : null };
+        } else {
+            throw new Error("未知的代理协议类型");
+        }
+        const latency = Date.now() - startTime;
+        try { if (socket && typeof socket.close === 'function') socket.close(); } catch(e) {}
+        return ResponseBuilder.json({ success: true, message: `连接成功! 延迟: ${latency}ms` });
+    } catch (e) {
+        return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` });
+    }
+}
+
 export default {
     async fetch(req, env, ctx) {
         try {
@@ -1532,35 +2127,47 @@ export default {
             if (env.FDIP) fdc = env.FDIP.split(',').map(s => s.trim());
             p = env.SUB_PATH || env.subpath || p;
             uid = env.UUID || env.uuid || env.AUTH || uid;
+            
             const config = await optimizeConfigLoading(env, ctx);
             dns = config.dns || env.DNS_RESOLVER || dns;
             const loginPath = config.klp || 'login';
+
             const upg = req.headers.get('Upgrade');
             const url = new URL(req.url);
             const contentType = req.headers.get('content-type') || '';
             const proxyCtx = await getRequestProxyConfig(req, config);
             
             if (upg && upg.toLowerCase() === 'websocket') {
-                return await handleWSRequest(req, uid, proxyCtx);
+                return await handleWSRequest(req, uid, url, proxyCtx);
             } else if (contentType.startsWith('application/grpc')) {
                 return await handleGRPCRequest(req, uid, proxyCtx);
-            } else if (req.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${loginPath}` && url.pathname !== '/init' && url.pathname !== '/zxyx') {
+            } else if (req.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${loginPath}`) {
                 return await handleXHTTPRequest(req, uid, proxyCtx);
             }
             
             const pathname = url.pathname;
+            
             if (pathname === '/') {
                 const token = getSessionCookie(req.headers.get('Cookie'));
                 const sessionResult = await validateAndRefreshSession(env, token);
                 if (sessionResult.valid) {
                     const host = req.headers.get('Host');
-                    const response = await getMainPageContent(host, `https://${host}`, await gP(env), await gU(env), env);
-                    if (sessionResult.refreshed) response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
+                    const base = `https://${host}`;
+                    const response = await getMainPageContent(host, base, await gP(env), await gU(env), env);
+                    if (sessionResult.refreshed) {
+                        response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
+                    }
                     return response;
                 } else {
-                    const pw = await gP(env); const u = await gU(env);
+                    const pw = await gP(env);
+                    const u = await gU(env);
                     if (!pw || !u) return getInitPage(req.headers.get('Host'), `https://${req.headers.get('Host')}`, true);
-                    if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
+                    if (env.ASSETS) {
+                        try {
+                            const assetRes = await env.ASSETS.fetch(req);
+                            if (assetRes.status !== 404) return assetRes;
+                        } catch(e) {}
+                    }
                     return getPoemPage();
                 }
             }
@@ -1569,34 +2176,135 @@ export default {
             switch (pathname) {
                 case `/${p}`: return await sub(req);
                 case '/info': return await requireAuth(req, env, () => ResponseBuilder.json(req.cf));
-                case '/test-dns': return await requireAuth(req, env, async () => ResponseBuilder.json({success:true}));
+                case '/connect': return await requireAuth(req, env, handleConnectTest);
+                case '/test-dns': return await requireAuth(req, env, handleDNSTest);
+                case '/test-config': return await requireAuth(req, env, handleConfigTest);
+                case '/test-failover': return await requireAuth(req, env, handleFailoverTest);
                 case '/test-proxy': return await requireAuth(req, env, handleProxyTest);
                 case '/admin/save': return await handleAdminSave(req, env);
                 case '/admin': return await requireAuth(req, env, getAdminPage);
                 case '/init': return await handleInit(req, env);
                 case '/zxyx': return await requireAuth(req, env, zxyx);
                 case '/logout': return await handleLogout(req, env);
-                case '/api/usage': return await requireAuth(req, env, async()=> ResponseBuilder.json(await getCloudflareUsageAPI(env)));
+                case '/api/usage': return await handleUsageAPI(req, env, ctx);
             }
+            
             if (pathname === `/${uid}`) return await sub(req);
-            if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
+            
+            if (env.ASSETS) {
+                try {
+                    const assetRes = await env.ASSETS.fetch(req);
+                    if (assetRes.status !== 404) return assetRes;
+                } catch(e) {}
+            }
+            
             return getPoemPage();
         } catch (err) {
             return ErrorHandler.internalError();
         }
     }
 };
+
 function getLoginPage(url, baseUrl, showError = false, showPasswordChanged = false) {
     let msgHtml = '';
     if (showPasswordChanged) msgHtml = `<div class="success-msg">密码已修改，请重新登录</div>`;
     else if (showError) msgHtml = `<div class="error-msg">密码错误，请重试</div>`;
-    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>登录</title><style>${getCommonCSS()}</style></head><body><div style="width: 100%; max-width: 440px;"><div class="card" style="text-align: center;"><div class="logo">🔒</div><h1>欢迎回来</h1><p>请输入密码以访问控制台</p>${msgHtml}<form method="post" action="/${cc?.klp || 'login'}"><div class="form-group"><label>访问密码</label><input type="password" name="password" required autofocus placeholder="请输入登录密码"></div><button type="submit" class="btn">立即登录 ➜</button></form><div class="footer">© 2025 Workers Service</div></div></div></body></html>`;
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录</title>
+<style>${getCommonCSS()}</style>
+</head>
+<body>
+    <div style="width: 100%; max-width: 440px;">
+        <div class="card" style="text-align: center;">
+            <div class="logo">🔒</div>
+            <h1>欢迎回来</h1>
+            <p>请输入密码以访问控制台</p>
+            ${msgHtml}
+            <form method="post" action="/${cc?.klp || 'login'}">
+                <div class="form-group">
+                    <label>访问密码</label>
+                    <input type="password" name="password" required autofocus placeholder="请输入登录密码">
+                </div>
+                <button type="submit" class="btn">立即登录 ➜</button>
+            </form>
+            <div class="footer">© 2025 Workers Service</div>
+        </div>
+    </div>
+</body>
+</html>`;
     return ResponseBuilder.html(html);
 }
+
 function getInitPage(url, baseUrl, isFirstTime = true) {
-    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>系统初始化</title><style>${getCommonCSS()}</style><script>function genUUID() { const u = crypto.randomUUID(); document.getElementById('uuid').value = u; } function validateForm(e) { const u = document.getElementById('uuid').value; if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u)) { alert('UUID 格式不正确'); return false; } return true; }</script></head><body><div style="width: 100%; max-width: 500px;"><div class="card"><div style="text-align: center;"><div class="logo">🚀</div><h1>系统初始化</h1><p>首次运行，请配置基本安全信息</p></div><form action="/init" method="post" onsubmit="return validateForm()"><div class="form-group"><label>管理员密码</label><input type="password" name="password" required minlength="4" placeholder="设置后台登录密码"></div><div class="form-group"><label>确认密码</label><input type="password" name="confirm_password" required minlength="4" placeholder="再次输入密码"></div><div class="form-group"><label>UUID (用户ID)</label><div style="display: flex; gap: 0.5rem;"><input type="text" id="uuid" name="uuid" required placeholder="xxxxxxxx-xxxx-4xxx..."><button type="button" class="btn-secondary" onclick="genUUID()" style="width: auto; white-space: nowrap;">生成</button></div></div><div class="form-group"><label>登录路径</label><input type="text" name="login_path" value="login" required placeholder="例如: admin"></div><button type="submit" class="btn">完成设置 ➜</button></form></div></div></body></html>`;
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统初始化</title>
+<style>${getCommonCSS()}</style>
+<script>
+function genUUID() {
+    const p1 = 'xxxxxxxx-xxxx-4xxx';
+    const p2 = '-yxxx-xxxxxxxxxxxx';
+    const u = (p1 + p2).replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+    document.getElementById('uuid').value = u;
+}
+function validateForm(e) {
+    const u = document.getElementById('uuid').value;
+    const p1 = '^[0-9a-f]{8}-[0-9a-f]{4}-';
+    const p2 = '[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-';
+    const p3 = '[0-9a-f]{12}$';
+    if (!new RegExp(p1 + p2 + p3, 'i').test(u)) {
+        alert('UUID 格式不正确');
+        return false;
+    }
+    return true;
+}
+</script>
+</head>
+<body>
+    <div style="width: 100%; max-width: 500px;">
+        <div class="card">
+            <div style="text-align: center;">
+                <div class="logo">🚀</div>
+                <h1>系统初始化</h1>
+                <p>首次运行，请配置基本安全信息</p>
+            </div>
+            <form action="/init" method="post" onsubmit="return validateForm()">
+                <div class="form-group">
+                    <label>管理员密码</label>
+                    <input type="password" name="password" required minlength="4" placeholder="设置后台登录密码">
+                </div>
+                <div class="form-group">
+                    <label>确认密码</label>
+                    <input type="password" name="confirm_password" required minlength="4" placeholder="再次输入密码">
+                </div>
+                <div class="form-group">
+                    <label>UUID (用户ID)</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="uuid" name="uuid" required placeholder="xxxxxxxx-xxxx-4xxx...">
+                        <button type="button" class="btn-secondary" onclick="genUUID()" style="width: auto; white-space: nowrap;">生成</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>登录路径</label>
+                    <input type="text" name="login_path" value="login" required placeholder="例如: admin">
+                </div>
+                <button type="submit" class="btn">完成设置 ➜</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>`;
     return ResponseBuilder.html(html);
 }
+
 async function handleInit(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
@@ -1613,33 +2321,182 @@ async function handleInit(req, env) {
     await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath);
     uid = uuid;
     const newToken = await signToken(env, Date.now() + SESSION_DURATION);
-    return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
+    return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, {
+        'Set-Cookie': setSessionCookie(newToken)
+    });
 }
-async function handleProxyTest(req, env) {
-    try {
-        const { type, account } = await req.json();
-        if (!account) throw new Error("节点地址为空");
-        const parsedAddress = await 获取SOCKS5账号(account);
-        const targetHost = "www.google.com";
-        const targetPort = 80;
-        const startTime = Date.now();
-        let socket;
-        if (type === 'socks5') socket = await socks5Connect(targetHost, targetPort, parsedAddress, null);
-        else if (type === 'http') socket = await httpConnect(targetHost, targetPort, parsedAddress, null, false);
-        else if (type === 'https') socket = await httpConnect(targetHost, targetPort, parsedAddress, null, true);
-        else throw new Error("未知的代理协议类型");
-        const latency = Date.now() - startTime;
-        try { if (socket && typeof socket.close === 'function') socket.close(); } catch(e) {}
-        return ResponseBuilder.json({ success: true, message: `连接成功! 延迟: ${latency}ms` });
-    } catch (e) {
-        return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` });
-    }
-}
+
 async function getMainPageContent(host, base, pw, uuid, env) {
-    const proxyStatus = cc?.proxyConfig?.enabled ? `<span style="color:#22c55e;">● 已启用 (${cc.proxyConfig.type.toUpperCase()})</span>` : `<span style="color:#94a3b8;">● 未启用</span>`;
-    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>控制台</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"><style>${getCommonCSS()} body { justify-content: flex-start; padding: 2rem 1rem; } .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1.5rem; width: 100%; max-width: 1000px; margin-top: 1.5rem; } @media (max-width: 768px) { .dashboard-grid { grid-template-columns: 1fr; } } .card { padding: 1.5rem; } .stat-item { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid rgba(255,255,255,0.1); } .stat-item:last-child { border-bottom: none; } .stat-label { color: var(--text-light); display: flex; align-items: center; gap: 0.5rem; } .stat-val { font-weight: 500; word-break: break-all; text-align: right; } .action-grid { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; } .action-grid .btn, .action-grid .btn-secondary { flex: 1 1 auto; min-width: 120px; } .copy-btn { cursor: pointer; color: var(--primary); margin-left: 0.5rem; } .nav-header { width: 100%; max-width: 1000px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; } .nav-brand { font-size: 1.5rem; font-weight: 700; background: linear-gradient(to right, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; } .nav-actions { display: flex; gap: 1rem; } .glass-btn { background: var(--surface); backdrop-filter: var(--glass); padding: 0.5rem 1rem; border-radius: 2rem; text-decoration: none; color: var(--text); font-size: 0.875rem; border: 1px solid var(--border); transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; white-space: nowrap; } .glass-btn:hover { background: rgba(255,255,255,0.2); }</style></head><body><div class="nav-header"><div class="nav-brand">Workers Service</div><div class="nav-actions"><a href="/admin" class="glass-btn"><i class="fas fa-cog"></i> 设置</a><a href="/logout" class="glass-btn"><i class="fas fa-sign-out-alt"></i> 退出</a></div></div><div class="dashboard-grid"><div class="card"><h3 style="margin-top:0"><i class="fas fa-server" style="color:var(--primary)"></i> 系统状态</h3><div class="stat-item"><span class="stat-label">运行状态</span><span class="stat-val" style="display:flex; align-items:center;"><span class="status-dot"></span>正常运行</span></div><div class="stat-item"><span class="stat-label">协议</span><span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;"><span style="color:${ev?'#22c55e':'#94a3b8'}">VL ${ev?'●':'○'}</span><span style="opacity: 0.2;">|</span><span style="color:${et?'#22c55e':'#94a3b8'}">TJ ${et?'●':'○'}</span></span></div><div class="stat-item"><span class="stat-label">传输网络</span><span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;"><span style="color:${cc?.transConfig?.grpc?'#22c55e':'#94a3b8'}">gRPC</span><span style="opacity: 0.2;">|</span><span style="color:${cc?.transConfig?.xhttp?'#22c55e':'#94a3b8'}">XHTTP</span><span style="opacity: 0.2;">|</span><span style="color:${cc?.transConfig?.ech?'#22c55e':'#94a3b8'}">ECH</span></span></div><div class="stat-item"><span class="stat-label">代理转发</span><span class="stat-val">${proxyStatus}</span></div><div class="stat-item"><span class="stat-label">API用量</span><span class="stat-val" id="usage">加载中...</span></div></div><div class="card"><h3 style="margin-top:0"><i class="fas fa-link" style="color:#ec4899"></i> 订阅管理</h3><div class="action-grid"><button class="btn btn-secondary" onclick="copy('${base}/${uuid}')"><i class="fas fa-bolt"></i> Base64</button><button class="btn btn-secondary" onclick="copySub('clash')"><i class="fas fa-cat"></i> Clash</button><button class="btn btn-secondary" onclick="copySub('singbox')"><i class="fas fa-box"></i> SingBox</button><button class="btn btn-secondary" onclick="copy('${base}/${uuid}?format=surge')"><i class="fas fa-paper-plane"></i> Surge</button></div></div><div class="card" style="grid-column: 1 / -1;"><h3 style="margin-top:0"><i class="fas fa-tools" style="color:#f59e0b"></i> 快捷工具</h3><div class="action-grid"><a href="/admin#ip" class="btn btn-secondary"><i class="fas fa-list"></i> IP 库管理</a><a href="/zxyx" class="btn"><i class="fas fa-tachometer-alt"></i> 在线优选 IP</a></div></div></div><script>function showToast(msg, type = 'success') { let container = document.querySelector('.toast-container'); if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); } const toast = document.createElement('div'); toast.className = 'toast ' + type; const icon = type === 'success' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>'; toast.innerHTML = icon + '<span>' + msg + '</span>'; container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show')); setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000); } function copy(text) { navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板', 'success')).catch(() => showToast('复制失败，请手动复制', 'error')); } function copySub(type) { const rawSub = '${base}/${uuid}'; let url = rawSub + (rawSub.includes('?') ? '&' : '?') + 'target=' + type; copy(url); } fetch('/api/usage').then(r=>r.json()).then(d=>{ const el = document.getElementById('usage'); if(d.success) { const total = d.total; const limit = 100000; const percent = (total / limit) * 100; let color = '#22c55e'; if (percent >= 80) color = '#ef4444'; else if (percent >= 60) color = '#f59e0b'; el.innerHTML = \`<span style="color:\${color}; font-weight:bold;">\${total} 请求</span>\`; } else { el.innerText = '未配置'; } });</script></body></html>`;
+    const proxyStatus = cc?.proxyConfig?.enabled 
+        ? `<span style="color:#22c55e;">● 已启用 (${cc.proxyConfig.type.toUpperCase()} | ${cc.proxyConfig.global ? '全局' : '分流'})</span>` 
+        : `<span style="color:#94a3b8;">● 未启用</span>`;
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>控制台</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+${getCommonCSS()}
+body { justify-content: flex-start; padding: 2rem 1rem; }
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 1.5rem;
+    width: 100%;
+    max-width: 1000px;
+    margin-top: 1.5rem;
+}
+@media (max-width: 768px) {
+    .dashboard-grid { grid-template-columns: 1fr; }
+}
+.card { padding: 1.5rem; }
+.stat-item { display: flex; justify-content: space-between; padding: 0.75rem 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
+.stat-item:last-child { border-bottom: none; }
+.stat-label { color: var(--text-light); display: flex; align-items: center; gap: 0.5rem; }
+.stat-val { font-weight: 500; word-break: break-all; text-align: right; }
+.action-grid { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1rem; }
+.action-grid .btn, .action-grid .btn-secondary { flex: 1 1 auto; min-width: 120px; }
+.copy-btn { cursor: pointer; color: var(--primary); margin-left: 0.5rem; }
+.nav-header {
+    width: 100%; max-width: 1000px; display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;
+}
+.nav-brand { font-size: 1.5rem; font-weight: 700; background: linear-gradient(to right, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+.nav-actions { display: flex; gap: 1rem; }
+.glass-btn { background: var(--surface); backdrop-filter: var(--glass); padding: 0.5rem 1rem; border-radius: 2rem; text-decoration: none; color: var(--text); font-size: 0.875rem; border: 1px solid var(--border); transition: all 0.2s; display: flex; align-items: center; gap: 0.5rem; white-space: nowrap; }
+.glass-btn:hover { background: rgba(255,255,255,0.2); }
+</style>
+</head>
+<body>
+    <div class="nav-header">
+        <div class="nav-brand">Workers Service</div>
+        <div class="nav-actions">
+            <a href="/admin" class="glass-btn"><i class="fas fa-cog"></i> 设置</a>
+            <a href="/logout" class="glass-btn"><i class="fas fa-sign-out-alt"></i> 退出</a>
+        </div>
+    </div>
+
+    <div class="dashboard-grid">
+        <div class="card">
+            <h3 style="margin-top:0"><i class="fas fa-server" style="color:var(--primary)"></i> 系统状态</h3>
+            <div class="stat-item">
+                <span class="stat-label">运行状态</span>
+                <span class="stat-val" style="display:flex; align-items:center;"><span class="status-dot"></span>正常运行</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">协议</span>
+                <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
+                 <span style="color:${ev?'#22c55e':'#94a3b8'}">Vless ${ev?'●':'○'}</span>
+                  <span style="opacity: 0.2;">|</span>
+                  <span style="color:${et?'#22c55e':'#94a3b8'}">Trojan ${et?'●':'○'}</span>
+                </span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">传输网络</span>
+                <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
+                 <span style="color:${cc?.transConfig?.grpc?'#22c55e':'#94a3b8'}">gRPC</span>
+                  <span style="opacity: 0.2;">|</span>
+                  <span style="color:${cc?.transConfig?.xhttp?'#22c55e':'#94a3b8'}">XHTTP</span>
+                  <span style="opacity: 0.2;">|</span>
+                  <span style="color:${cc?.transConfig?.ech?'#22c55e':'#94a3b8'}">ECH</span>
+                </span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">代理转发</span>
+                <span class="stat-val">${proxyStatus}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">API用量</span>
+                <span class="stat-val" id="usage">加载中...</span>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0"><i class="fas fa-link" style="color:#ec4899"></i> 订阅管理</h3>
+            <div class="action-grid">
+                <button class="btn btn-secondary" onclick="copy('${base}/${uuid}')"><i class="fas fa-bolt"></i> Base64</button>
+                <button class="btn btn-secondary" onclick="copySub('clash')"><i class="fas fa-cat"></i> Clash</button>
+                <button class="btn btn-secondary" onclick="copySub('singbox')"><i class="fas fa-box"></i> SingBox</button>
+                <button class="btn btn-secondary" onclick="copy('${base}/${uuid}?format=surge')"><i class="fas fa-paper-plane"></i> Surge</button>
+            </div>
+        </div>
+        
+        <div class="card" style="grid-column: 1 / -1;">
+             <h3 style="margin-top:0"><i class="fas fa-tools" style="color:#f59e0b"></i> 快捷工具</h3>
+             <div class="action-grid">
+                <a href="/admin#ip" class="btn btn-secondary"><i class="fas fa-list"></i> IP 库管理</a>
+                <a href="/zxyx" class="btn"><i class="fas fa-tachometer-alt"></i> 在线优选 IP</a>
+             </div>
+        </div>
+    </div>
+
+    <script>
+    function showToast(msg, type = 'success') {
+        let container = document.querySelector('.toast-container');
+        if (!container) {
+            container = document.createElement('div');
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement('div');
+        toast.className = 'toast ' + type;
+        const icon = type === 'success' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>';
+        toast.innerHTML = icon + '<span>' + msg + '</span>';
+        container.appendChild(toast);
+        requestAnimationFrame(() => toast.classList.add('show'));
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
+    }
+
+    function copy(text) {
+        navigator.clipboard.writeText(text).then(() => showToast('已复制到剪贴板', 'success'))
+        .catch(() => showToast('复制失败，请手动复制', 'error'));
+    }
+    
+    function copySub(type) {
+        const rawSub = '${base}/${uuid}';
+        const backend = '${cc?.dyhd || dyhd}';
+        const config = '${cc?.dypz || dypz}';
+        
+        let url = backend;
+        if (!url.includes('?')) url += '?';
+        if (!url.endsWith('?') && !url.endsWith('&')) url += '&';
+        
+        url += 'target=' + type;
+        url += '&url=' + encodeURIComponent(rawSub);
+        url += '&config=' + encodeURIComponent(config);
+        
+        if(type === 'singbox') {
+            url += '&include=&exclude='; 
+        }
+        
+        url += '&emoji=true&list=false&tfo=false&scv=false&fdn=false&sort=false';
+        copy(url);
+    }
+
+    fetch('/api/usage').then(r=>r.json()).then(d=>{
+        const el = document.getElementById('usage');
+        if(d.success) {
+            const total = d.usage.total;
+            const limit = 100000;
+            const percent = (total / limit) * 100;
+            let color = '#22c55e';
+            if (percent >= 80) color = '#ef4444';
+            else if (percent >= 60) color = '#f59e0b';
+            
+            el.innerHTML = \`<span style="color:\${color}; font-weight:bold;">\${total} 请求</span>\`;
+        } else {
+            el.innerText = '未配置';
+        }
+    });
+    </script>
+</body>
+</html>`;
     return ResponseBuilder.html(html);
 }
+
 async function handleAdminSave(req, env) {
     try {
         const token = getSessionCookie(req.headers.get('Cookie'));
@@ -1661,8 +2518,11 @@ async function handleAdminSave(req, env) {
         const xhttp = form.get('trans_xhttp') === 'on';
         const ech = form.get('trans_ech') === 'on';
         const ech_sni = form.get('trans_ech_sni') || '';
+        const cfApiMode = form.get('cf_api_mode');
         let cfAccountId = form.get('cf_account_id');
         const cfApiToken = form.get('cf_api_token');
+        const cfEmail = form.get('cf_email');
+        const cfGlobalApiKey = form.get('cf_global_api_key');
         const proxyEnabled = form.get('proxy_enabled') === 'on';
         const proxyType = form.get('proxy_type');
         const proxyAccount = form.get('proxy_account');
@@ -1672,6 +2532,22 @@ async function handleAdminSave(req, env) {
         const cfipArr = uniqueIPList(cfipList.split('\n').map(x => x.trim()).filter(Boolean));
         const fdipArr = uniqueIPList(fdipList.split('\n').map(x => x.trim()).filter(Boolean));
         if (newPassword) await sP(env, newPassword);
+        if (!cfAccountId && cfApiToken) {
+            try {
+                const resp = await fetch("https://api.cloudflare.com/client/v4/accounts", {
+                    headers: {
+                        "Authorization": `Bearer ${cfApiToken}`,
+                        "Content-Type": "application/json"
+                    }
+                });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    if (data.result && data.result.length > 0) {
+                        cfAccountId = data.result[0].id;
+                    }
+                }
+            } catch (e) {}
+        }
         const protocolCfg = { ev: protocolEv, et: protocolEt, tp: protocolTp };
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
@@ -1682,18 +2558,452 @@ async function handleAdminSave(req, env) {
         ev = protocolEv; et = protocolEt; tp = protocolTp;
         protocolConfig = { ev, et, tp };
         const host = req.headers.get('Host');
-        if (req.headers.get('Accept') === 'application/json') return ResponseBuilder.json({ success: true });
+        if (req.headers.get('Accept') === 'application/json') {
+             return ResponseBuilder.json({ success: true });
+        }
         return ResponseBuilder.redirect(`https://${host}/admin?msg=saved`);
-    } catch (e) { return ResponseBuilder.text(e.message, 500); }
+    } catch (e) {
+        return ResponseBuilder.text(e.message, 500);
+    }
 }
+
 async function getAdminPage(req, env) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
     if (!sessionResult.valid) return ErrorHandler.unauthorized();
+    const url = new URL(req.url);
     if (!cc) await optimizeConfigLoading(env);
-    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>系统配置</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"><style>${getCommonCSS()} body { justify-content: flex-start; padding: 2rem 1rem; } .admin-container { max-width: 1000px; width: 100%; margin: 0 auto; } .card { padding: 1.5rem; margin-bottom: 1.5rem; } h3 { margin-top: 0; margin-bottom: 1.25rem; font-size: 1.25rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 0.75rem; } .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; } @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } } label { font-size: 0.9rem; font-weight: 600; color: var(--text); margin-bottom: 0.5rem; display: block; } .form-group { margin-bottom: 1.25rem; position: relative; } textarea { font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 0.85rem; line-height: 1.4; height: 140px; background: rgba(255,255,255,0.03); border-color: var(--border); } textarea:focus { background: rgba(255,255,255,0.08); } .help-text { font-size: 0.8rem; color: var(--text-light); margin-top: 0.5rem; line-height: 1.4; display: flex; align-items: flex-start; gap: 0.4rem; background: rgba(255,255,255,0.03); padding: 0.5rem; border-radius: 0.5rem; } .help-text i { margin-top: 0.15rem; color: var(--primary); opacity: 0.8; } .toggle-switch { margin-bottom: 0; }</style><script>function genUUID() { const u = crypto.randomUUID(); document.getElementById('uuid').value = u; } function showToast(msg, type = 'success') { let container = document.querySelector('.toast-container'); if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); } const toast = document.createElement('div'); toast.className = 'toast ' + type; const icon = type === 'success' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>'; toast.innerHTML = icon + '<span>' + msg + '</span>'; container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show')); setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000); } function testProxy() { const btn = document.getElementById('proxy-test-btn'); const accountInput = document.querySelector('input[name="proxy_account"]'); const typeSelect = document.querySelector('select[name="proxy_type"]'); const account = accountInput.value.trim(); const type = typeSelect.value; if (!account) { showToast('请先输入节点地址', 'error'); accountInput.focus(); return; } const originalText = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 测试中...'; fetch('/test-proxy', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account: account, type: type }) }).then(r => r.json()).then(data => { if(data.success) { showToast(data.message, 'success'); } else { showToast(data.message, 'error'); } }).catch(e => showToast('请求错误: ' + e, 'error')).finally(() => { btn.disabled = false; btn.innerHTML = originalText; }); } async function saveConfig(e) { e.preventDefault(); const form = e.target; const btn = form.querySelector('button[type="submit"]'); const originalText = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...'; try { const response = await fetch('/admin/save', { method: 'POST', body: new FormData(form), headers: { 'Accept': 'application/json' } }); if (response.ok) { showToast('配置已保存并立即生效', 'success'); } else { showToast('保存失败', 'error'); } } catch (err) { showToast('网络错误: ' + err, 'error'); } finally { btn.disabled = false; btn.innerHTML = originalText; } }</script></head><body><div class="admin-container"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;"><h1 style="margin:0"><i class="fas fa-cogs"></i> 系统配置</h1><a href="/" class="btn-secondary btn" style="width:auto; padding: 0.6rem 1.2rem; gap: 0.5rem;"><i class="fas fa-arrow-left"></i> 返回主页</a></div><form onsubmit="saveConfig(event)"><div class="card" id="ip"><h3><i class="fas fa-globe" style="color:var(--primary)"></i> IP 资源管理</h3><div class="grid-2"><div class="form-group"><label>优选 IP / 域名 (Web伪装 & 订阅)</label><textarea name="cfip" placeholder="例如: 1.1.1.1:443#美国">${yx.join('\n')}</textarea></div><div class="form-group"><label>反代 IP / 域名 / TXT记录 (支持 .william )</label><textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea></div></div></div><div class="card"><h3><i class="fas fa-shield-alt" style="color:#ec4899"></i> 协议与网络传输</h3><div class="grid-2"><div class="form-group"><label>启用协议</label><div style="display:flex; gap:1.5rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;"><label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ev" ${ev ? 'checked' : ''}> Vless</label><label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_et" ${et ? 'checked' : ''}> Trojan</label></div></div><div class="form-group"><label>传输模式增强</label><div style="display:flex; flex-wrap:wrap; gap:1.5rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;"><label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_grpc" ${cc?.transConfig?.grpc ? 'checked' : ''}> gRPC</label><label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_xhttp" ${cc?.transConfig?.xhttp ? 'checked' : ''}> XHTTP</label><label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_ech" ${cc?.transConfig?.ech ? 'checked' : ''}> ECH</label></div></div></div><div class="grid-2"><div class="form-group"><label>Trojan 密码</label><input type="text" name="protocol_tp" value="${tp}" placeholder="留空默认UUID"></div><div class="form-group"><label>ECH SNI (留空自动获取)</label><input type="text" name="trans_ech_sni" value="${cc?.transConfig?.ech_sni||''}"></div></div><div class="form-group"><label>UUID (用户ID)</label><div style="display: flex; gap: 0.75rem;"><input type="text" id="uuid" name="uuid" value="${uid}" required style="font-family:monospace;"><button type="button" class="btn btn-secondary" onclick="genUUID()" style="width: auto; padding: 0 1.5rem;">生成</button></div></div><div class="form-group"><label>修改后台密码</label><input type="password" name="new_password" placeholder="留空保持不变"></div></div><div class="card"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;"><h3 style="margin:0"><i class="fas fa-network-wired" style="color:#f59e0b"></i> 代理转发 (SOCKS5/HTTP/HTTPS)</h3><button type="button" class="btn btn-secondary" onclick="testProxy()" id="proxy-test-btn" style="width:auto; padding:0.4rem 1rem; font-size:0.85rem;"><i class="fas fa-stethoscope"></i> 测试连通性</button></div><div class="form-group"><label class="toggle-switch" style="display:flex; align-items:center; margin-bottom: 1rem;"><input type="checkbox" name="proxy_enabled" ${cc?.proxyConfig?.enabled ? 'checked' : ''}> 启用代理转发</label></div><div class="grid-2"><div class="form-group"><label>节点地址</label><input type="text" name="proxy_account" value="${cc?.proxyConfig?.account || ''}" placeholder="user:pass@host:port"></div><div class="form-group"><label>协议类型</label><select name="proxy_type"><option value="socks5" ${cc?.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option><option value="http" ${cc?.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option><option value="https" ${cc?.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option></select></div></div><div class="form-group"><label>转发模式</label><div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem;"><label class="toggle-switch"><input type="radio" name="proxy_mode" value="global" ${cc?.proxyConfig?.global ? 'checked' : ''}> 全局代理</label><label class="toggle-switch"><input type="radio" name="proxy_mode" value="failover" ${!cc?.proxyConfig?.global ? 'checked' : ''}> 故障分流</label></div></div></div><div class="card"><h3><i class="fas fa-bolt" style="color:#8b5cf6"></i> 订阅与高级配置</h3><div class="grid-2"><div class="form-group"><label>订阅后端</label><input type="text" name="dyhd" value="${cc?.dyhd || dyhd}"></div><div class="form-group"><label>远程配置</label><input type="text" name="dypz" value="${cc?.dypz || dypz}"></div></div><div class="grid-2"><div class="form-group"><label>后台入口路径</label><div style="position:relative;"><span style="position:absolute; left:1rem; top:0.75rem; color:var(--text-light); opacity:0.5;">/</span><input type="text" name="login_path" value="${cc?.klp || 'login'}" style="padding-left: 2rem;"></div></div><div class="form-group"><label>DNS DoH 地址</label><input type="text" name="custom_dns" value="${cc?.dns || dns}"></div></div></div><div class="card" style="margin-bottom: 5rem;"><h3><i class="fas fa-chart-line" style="color:#10b981"></i> Cloudflare API (统计)</h3><div class="grid-2"><div class="form-group"><label>Account ID</label><input type="text" name="cf_account_id" value="${cc?.cfConfig?.accountId || ''}"></div><div class="form-group"><label>API Token</label><input type="password" name="cf_api_token" value="${cc?.cfConfig?.apiToken || ''}"></div></div></div><div style="position: fixed; bottom: 2rem; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; z-index: 100;"><button type="submit" class="btn" style="pointer-events: auto; box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4); width: auto; padding: 1rem 3rem; border-radius: 2rem;"><i class="fas fa-save"></i> 保存配置</button></div></form></div></body></html>`;
+    const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系统配置</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+${getCommonCSS()}
+body { justify-content: flex-start; padding: 2rem 1rem; }
+.admin-container { max-width: 1000px; width: 100%; margin: 0 auto; }
+.card { padding: 1.5rem; margin-bottom: 1.5rem; }
+h3 {
+    margin-top: 0;
+    margin-bottom: 1.25rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+@media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+label { font-size: 0.9rem; font-weight: 600; color: var(--text); margin-bottom: 0.5rem; display: block; }
+.form-group { margin-bottom: 1.25rem; position: relative; }
+textarea { 
+    font-family: 'Menlo', 'Monaco', 'Courier New', monospace; 
+    font-size: 0.85rem; 
+    line-height: 1.4;
+    height: 140px; 
+    background: rgba(255,255,255,0.03); 
+    border-color: var(--border);
+}
+textarea:focus { background: rgba(255,255,255,0.08); }
+.help-text { 
+    font-size: 0.8rem; 
+    color: var(--text-light); 
+    margin-top: 0.5rem; 
+    line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    background: rgba(255,255,255,0.03);
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+}
+.help-text i { margin-top: 0.15rem; color: var(--primary); opacity: 0.8; }
+.toggle-switch { margin-bottom: 0; }
+</style>
+<script>
+function genUUID() {
+    const u = crypto.randomUUID();
+    document.getElementById('uuid').value = u;
+}
+function showToast(msg, type = 'success') {
+    let container = document.querySelector('.toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.className = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    const icon = type === 'success' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>';
+    toast.innerHTML = icon + '<span>' + msg + '</span>';
+    container.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+    setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+function testProxy() {
+    const btn = document.getElementById('proxy-test-btn');
+    const accountInput = document.querySelector('input[name="proxy_account"]');
+    const typeSelect = document.querySelector('select[name="proxy_type"]');
+    const account = accountInput.value.trim();
+    const type = typeSelect.value;
+    if (!account) {
+        showToast('请先输入节点地址', 'error');
+        accountInput.focus();
+        return;
+    }
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 测试中...';
+    fetch('/test-proxy', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ account: account, type: type })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) {
+            showToast(data.message, 'success');
+        } else {
+            showToast(data.message, 'error');
+        }
+    })
+    .catch(e => showToast('请求错误: ' + e, 'error'))
+    .finally(() => {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    });
+}
+async function saveConfig(e) {
+    e.preventDefault();
+    const form = e.target;
+    const btn = form.querySelector('button[type="submit"]');
+    const originalText = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存中...';
+    try {
+        const response = await fetch('/admin/save', {
+            method: 'POST',
+            body: new FormData(form),
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+        if (response.ok) {
+            showToast('配置已保存并立即生效', 'success');
+        } else {
+            showToast('保存失败', 'error');
+        }
+    } catch (err) {
+        showToast('网络错误: ' + err, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+</script>
+</head>
+<body>
+    <div class="admin-container">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.5rem;">
+            <h1 style="margin:0"><i class="fas fa-cogs"></i> 系统配置</h1>
+            <a href="/" class="btn-secondary btn" style="width:auto; padding: 0.6rem 1.2rem; gap: 0.5rem;"><i class="fas fa-arrow-left"></i> 返回主页</a>
+        </div>
+
+        <form onsubmit="saveConfig(event)">
+            <div class="card" id="ip">
+                <h3><i class="fas fa-globe" style="color:var(--primary)"></i> IP 资源管理</h3>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>优选 IP / 域名 (Web伪装 & 订阅)</label>
+                        <textarea name="cfip" placeholder="例如: 1.1.1.1:443#美国">${yx.join('\n')}</textarea>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP:端口#备注</code><br>用于 Web 伪装和生成订阅链接。</span></div>
+                    </div>
+                    <div class="form-group">
+                        <label>反代 IP / 域名 (支持 .william 动态记录)</label>
+                        <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。支持 <code>xxx.william</code> 动态 TXT 获取。</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3><i class="fas fa-shield-alt" style="color:#ec4899"></i> 协议与网络传输</h3>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>启用协议</label>
+                        <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ev" ${ev ? 'checked' : ''}> Vless</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_et" ${et ? 'checked' : ''}> Trojan</label>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>传输模式增强</label>
+                        <div style="display:flex; gap:1.5rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_grpc" ${cc?.transConfig?.grpc ? 'checked' : ''}> gRPC</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_xhttp" ${cc?.transConfig?.xhttp ? 'checked' : ''}> XHTTP</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_ech" ${cc?.transConfig?.ech ? 'checked' : ''}> ECH</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Trojan 密码</label>
+                        <input type="text" name="protocol_tp" value="${tp}" placeholder="留空则默认使用 UUID">
+                    </div>
+                    <div class="form-group">
+                        <label>ECH SNI (留空自动获取)</label>
+                        <input type="text" name="trans_ech_sni" value="${cc?.transConfig?.ech_sni||''}" placeholder="例如: cloudflare.com">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>UUID (用户ID)</label>
+                    <div style="display: flex; gap: 0.75rem;">
+                        <input type="text" id="uuid" name="uuid" value="${uid}" required style="font-family:monospace;">
+                        <button type="button" class="btn btn-secondary" onclick="genUUID()" style="width: auto; padding: 0 1.5rem;">生成</button>
+                    </div>
+                </div>
+                 <div class="form-group">
+                    <label>修改后台密码</label>
+                    <input type="password" name="new_password" placeholder="留空保持不变">
+                </div>
+            </div>
+
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
+                    <h3 style="margin:0"><i class="fas fa-network-wired" style="color:#f59e0b"></i> 代理转发 (SOCKS5/HTTP/HTTPS)</h3>
+                    <button type="button" class="btn btn-secondary" onclick="testProxy()" id="proxy-test-btn" style="width:auto; padding:0.4rem 1rem; font-size:0.85rem;">
+                        <i class="fas fa-stethoscope"></i> 测试连通性
+                    </button>
+                </div>
+                
+                <div class="form-group">
+                    <label class="toggle-switch" style="display:flex; align-items:center; margin-bottom: 1rem;">
+                        <input type="checkbox" name="proxy_enabled" ${cc?.proxyConfig?.enabled ? 'checked' : ''}> 启用代理转发功能
+                    </label>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>节点地址</label>
+                        <input type="text" name="proxy_account" value="${cc?.proxyConfig?.account || ''}" placeholder="user:pass@host:port">
+                    </div>
+                    <div class="form-group">
+                        <label>协议类型</label>
+                        <select name="proxy_type">
+                            <option value="socks5" ${cc?.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
+                            <option value="http" ${cc?.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option>
+                            <option value="https" ${cc?.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>转发模式</label>
+                    <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem;">
+                        <label class="toggle-switch">
+                            <input type="radio" name="proxy_mode" value="global" ${cc?.proxyConfig?.global ? 'checked' : ''}> 全局代理 (Global)
+                        </label>
+                        <label class="toggle-switch">
+                            <input type="radio" name="proxy_mode" value="failover" ${!cc?.proxyConfig?.global ? 'checked' : ''}> 故障分流 (Failover)
+                        </label>
+                    </div>
+                    <div class="help-text" style="margin-top:0.5rem;"><i class="fas fa-lightbulb"></i><span>全局：所有流量优先走代理；分流：直连失败后尝试代理。</span></div>
+                    <div style="margin-top: 0.75rem;">
+                        <details style="background: transparent; border: none;">
+                            <summary style="cursor: pointer; color: var(--primary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;">
+                                <i class="fas fa-question-circle" style="font-size: 0.8rem;"></i>
+                                支持格式说明
+                            </summary>
+                            <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.03); border-radius: 0.25rem; font-size: 0.75rem; line-height: 1.4;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                                    <div>
+                                        <div style="color: var(--text); font-weight: 500;">基本格式</div>
+                                        <code style="font-size: 0.7rem;">user:pass@host:port</code>
+                                        <br><code style="font-size: 0.7rem;">host:port</code>
+                                    </div>
+                                    <div>
+                                        <div style="color: var(--text); font-weight: 500;">高级格式</div>
+                                        <code style="font-size: 0.7rem;">base64@host:port</code>
+                                        <br><code style="font-size: 0.7rem;">[IPv6]:port</code>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 0.5rem; color: var(--text-light); font-size: 0.7rem;">
+                                    <i class="fas fa-bolt" style="color: var(--primary);"></i>
+                                    路径用法: <code>socks5://...#备注</code> 或 <code>http://...#备注</code>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3><i class="fas fa-bolt" style="color:#8b5cf6"></i> 订阅与高级配置</h3>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>订阅转换后端地址</label>
+                        <input type="text" name="dyhd" value="${cc?.dyhd || dyhd}" placeholder="https://xxx.xx.xx/sub?">
+                    </div>
+                    <div class="form-group">
+                        <label>远程配置规则地址</label>
+                        <input type="text" name="dypz" value="${cc?.dypz || dypz}" placeholder="https://...">
+                    </div>
+                </div>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Surge 专用模版</label>
+                        <input type="text" name="surgeTemplate" value="${cc?.stp || ''}" placeholder="https://raw.githubusercontent.com/...">
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>仅影响 Surge 订阅格式。留空则使用系统内置模版。</span></div>
+                    </div>
+                     <div class="form-group">
+                        <label>后台入口路径</label>
+                        <div style="position:relative;">
+                            <span style="position:absolute; left:1rem; top:0.75rem; color:var(--text-light); opacity:0.5;">/</span>
+                            <input type="text" name="login_path" value="${cc?.klp || 'login'}" style="padding-left: 2rem;">
+                        </div>
+                        <div class="help-text"><i class="fas fa-lock"></i> <span>设置后只能通过 <code>域名/路径</code> 访问。</span></div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>DNS DoH 地址 (UDP 53 转发)</label>
+                    <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
+                    <div class="help-text"><i class="fas fa-server"></i><span>必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求及动态配置。</span></div>
+                </div>
+            </div>
+
+            <div class="card" style="margin-bottom: 5rem;">
+                <h3><i class="fas fa-chart-line" style="color:#10b981"></i> Cloudflare API (用量统计)</h3>
+                <div class="grid-2">
+                    <div class="form-group">
+                        <label>Account ID</label>
+                        <input type="text" name="cf_account_id" value="${cc?.cfConfig?.accountId || ''}" placeholder="支持手动输入 & 支持通过Token自动获取">
+                    </div>
+                    <div class="form-group">
+                        <label>API Token</label>
+                        <input type="password" name="cf_api_token" value="${cc?.cfConfig?.apiToken || ''}" placeholder="填入Token并保存后，系统将尝试自动获取ID">
+                    </div>
+                </div>
+                <div class="help-text"><i class="fas fa-shield-alt"></i><span>请在 Cloudflare 用户资料页创建 Token，阅读日志权限选择 "Analytics: Read" (分析:读取)。</span></div>
+            </div>
+
+            <div style="position: fixed; bottom: 2rem; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; z-index: 100;">
+                <button type="submit" class="btn" style="pointer-events: auto; box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4); width: auto; padding: 1rem 3rem; border-radius: 2rem;">
+                    <i class="fas fa-save"></i> 保存所有配置
+                </button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>`;
     return ResponseBuilder.html(html);
 }
+
+async function handleConnectTest(req, env) {
+    try {
+        const { socket, server } = await universalConnectWithFailover('www.google.com', 443);
+        socket.close();
+        return ResponseBuilder.json({
+            success: true,
+            message: `成功连接到 ${server.original}`,
+            server: server
+        });
+    } catch (e) {
+        return ResponseBuilder.json({
+            success: false,
+            message: `连接失败: ${e.message}`
+        }, 500);
+    }
+}
+
+async function handleDNSTest(req, env) {
+    try {
+        const answers = await DoH查询('www.google.com', 'A');
+        return ResponseBuilder.json({
+            success: true,
+            message: 'DNS查询成功',
+            response: answers
+        });
+    } catch (e) {
+        return ResponseBuilder.json({
+            success: false,
+            message: `DNS查询失败: ${e.message}`
+        }, 500);
+    }
+}
+
+async function handleConfigTest(req, env) {
+    try {
+        const host = req.headers.get('Host');
+        const config = genConfig(uid, host);
+        return ResponseBuilder.json({
+            success: true,
+            message: '配置生成成功',
+            config: config
+        });
+    } catch (e) {
+        return ResponseBuilder.json({
+            success: false,
+            message: `配置生成失败: ${e.message}`
+        }, 500);
+    }
+}
+
+async function handleFailoverTest(req, env) {
+    try {
+        const testResults = [];
+        const servers = [...fdc, 'www.visa.com.sg'];
+        for (let i = 0; i < servers.length; i++) {
+            const s = servers[i];
+            try {
+                const resolved = await resolveAddressAndPort(s, 'www.google.com', uid);
+                if(resolved.length > 0) {
+                    const hostname = resolved[0][0];
+                    const port = resolved[0][1];
+                    const socket = await connect({
+                        hostname: hostname,
+                        port: port,
+                        connectTimeout: globalTimeout,
+                        noDelay: true
+                    });
+                    socket.close();
+                    testResults.push({
+                        server: s,
+                        status: 'success',
+                        message: `连接成功 (${hostname}:${port})`
+                    });
+                } else {
+                    testResults.push({
+                        server: s,
+                        status: 'failed',
+                        message: `解析失败`
+                    });
+                }
+            } catch (e) {
+                testResults.push({
+                    server: s,
+                    status: 'failed',
+                    message: `连接失败: ${e.message}`
+                });
+            }
+        }
+        return ResponseBuilder.json({
+            success: true,
+            message: '故障转移测试完成',
+            results: testResults
+        });
+    } catch (e) {
+        return ResponseBuilder.json({
+            success: false,
+            message: `故障转移测试失败: ${e.message}`
+        }, 500);
+    }
+}
+
 async function zxyx(request, env, txt = 'ADD.txt') {
     const countryCodeToName = {
         'US': '美国', 'SG': '新加坡', 'DE': '德国', 'JP': '日本', 'KR': '韩国',
