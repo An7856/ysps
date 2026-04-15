@@ -532,8 +532,22 @@ async function universalConnectWithFailover(targetHost = 'www.google.com', targe
     if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
     const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
     const now = Date.now();
-    for (const [ip, time] of FAILED_IP_CACHE) { if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip); }
-    if (FAILED_IP_CACHE.size > 500) FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
+for (const [ip, time] of FAILED_IP_CACHE) {
+    if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
+}
+if (FAILED_IP_CACHE.size > 500) {
+    let deleted = false;
+    for (const [key, time] of FAILED_IP_CACHE) {
+        if (now - time > FAILED_TTL) {
+            FAILED_IP_CACHE.delete(key);
+            deleted = true;
+            break;
+        }
+    }
+    if (!deleted) {
+        FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
+    }
+}
     for (let i = 0; i < resolvedList.length; i++) {
         const [hostname, port] = resolvedList[i];
         const cacheKey = `${hostname}:${port}`;
@@ -702,7 +716,6 @@ async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = fa
 	const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
 	const encoder = new TextEncoder(), decoder = new TextDecoder();
 	try {
-		if (HTTPS代理) await socket.opened;
 		const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
 		const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}User-Agent: Mozilla/5.0\r\nConnection: keep-alive\r\n\r\n`;
 		await writer.write(encoder.encode(request));
