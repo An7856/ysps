@@ -438,76 +438,6 @@ async function getECH(host) {
     } catch { return ''; }
 }
 
-async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
-    if (!cachedProxyIPList || cachedProxyIPList.length === 0 || cachedProxyIP !== proxyIP) {
-        proxyIP = proxyIP.toLowerCase();
-        function parseStr(str) {
-            let addr = str, port = 443;
-            if (str.includes(']:')) {
-                const parts = str.split(']:');
-                addr = parts[0] + ']';
-                port = parseInt(parts[1], 10) || port;
-            } else if (str.includes(':') && !str.startsWith('[')) {
-                const colonIndex = str.lastIndexOf(':');
-                addr = str.slice(0, colonIndex);
-                port = parseInt(str.slice(colonIndex + 1), 10) || port;
-            }
-            return [addr, port];
-        }
-        const ipArr = proxyIP.split(',').map(s => s.trim()).filter(Boolean);
-        let allArr = [];
-        for (const sip of ipArr) {
-            if (sip.includes('.william')) {
-                try {
-                    let txtRecords = await DoH查询(sip, 'TXT');
-                    let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
-                    if (txtData.length === 0) {
-                        txtRecords = await DoH查询(sip, 'TXT', 'https://dns.google/dns-query');
-                        txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
-                    }
-                    if (txtData.length > 0) {
-                        let data = txtData[0];
-                        if (data.startsWith('"') && data.endsWith('"')) data = data.slice(1, -1);
-                        const prefixes = data.replace(/\\010/g, ',').replace(/\n/g, ',').split(',').map(s => s.trim()).filter(Boolean);
-                        allArr.push(...prefixes.map(prefix => parseStr(prefix)));
-                    }
-                } catch (e) {}
-            } else {
-                let [addr, port] = parseStr(sip);
-                if (sip.includes('.tp')) {
-                    const tpMatch = sip.match(/\.tp(\d+)/);
-                    if (tpMatch) port = parseInt(tpMatch[1], 10);
-                }
-                const ipv4Regex = /^(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)\.(25[0-5]|2[0-4]\d|[01]?\d\d?)$/;
-                const ipv6Regex = /^\[?([a-fA-F0-9:]+)\]?$/;
-                if (!ipv4Regex.test(addr) && !ipv6Regex.test(addr)) {
-                    let [aRecords, aaaaRecords] = await Promise.all([DoH查询(addr, 'A'), DoH查询(addr, 'AAAA')]);
-                    let ipv4List = aRecords.filter(r => r.type === 1).map(r => r.data);
-                    let ipv6List = aaaaRecords.filter(r => r.type === 28).map(r => `[${r.data}]`);
-                    let ipAddresses = [...ipv4List, ...ipv6List];
-                    if (ipAddresses.length === 0) {
-                        [aRecords, aaaaRecords] = await Promise.all([DoH查询(addr, 'A', 'https://dns.google/dns-query'), DoH查询(addr, 'AAAA', 'https://dns.google/dns-query')]);
-                        ipv4List = aRecords.filter(r => r.type === 1).map(r => r.data);
-                        ipv6List = aaaaRecords.filter(r => r.type === 28).map(r => `[${r.data}]`);
-                        ipAddresses = [...ipv4List, ...ipv6List];
-                    }
-                    if (ipAddresses.length > 0) allArr.push(...ipAddresses.map(ip => [ip, port]));
-                    else allArr.push([addr, port]);
-                } else {
-                    allArr.push([addr, port]);
-                }
-            }
-        }
-        const sorted = allArr.sort((a, b) => a[0].localeCompare(b[0]));
-        const rootHost = targetHost.includes('.') ? targetHost.split('.').slice(-2).join('.') : targetHost;
-        let seed = [...(rootHost + UUID)].reduce((a, c) => a + c.charCodeAt(0), 0);
-        const shuffled = [...sorted].sort(() => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff - 0.5);
-        cachedProxyIPList = shuffled.slice(0, 8);
-        cachedProxyIP = proxyIP;
-    }
-    return cachedProxyIPList;
-}
-
 async function connectWithTimeout(host, port, timeoutMs) {
     const socket = connect({ hostname: host, port: port, allowHalfOpen: true, noDelay: true });
     let timer = null;
@@ -525,28 +455,55 @@ async function connectWithTimeout(host, port, timeoutMs) {
     }
 }
 
-async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
+async function universalConnectWithFailover() {
     let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
-    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
-    if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
-    const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
+    const PRIMARY_TIMEOUT = 3000;
+    const BACKUP_TIMEOUT = 2000;
+    const primaryIP = valid[0];
+    const backupIPs = valid.slice(1);
     const now = Date.now();
-    for (const [ip, time] of FAILED_IP_CACHE) { if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip); }
-    if (FAILED_IP_CACHE.size > 500) FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
-    for (let i = 0; i < resolvedList.length; i++) {
-        const [hostname, port] = resolvedList[i];
-        const cacheKey = `${hostname}:${port}`;
-        if (!FAILED_IP_CACHE.has(cacheKey)) {
-             try {
-                const socket = await connectWithTimeout(hostname, port, i === 0 ? PRIMARY_TIMEOUT : BACKUP_TIMEOUT);
-                return { socket, server: { hostname, port, original: cacheKey } };
-            } catch (e) {
-                FAILED_IP_CACHE.set(cacheKey, Date.now());
-            }
+    for (const [ip, time] of FAILED_IP_CACHE) {
+        if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
+    }
+    if (FAILED_IP_CACHE.size > 500) {
+        FAILED_IP_CACHE.delete(FAILED_IP_CACHE.keys().next().value);
+    }
+    if (!FAILED_IP_CACHE.has(primaryIP)) {
+        try {
+            const { hostname, port } = IPParser.parseConnectionAddress(primaryIP);
+            const socket = await connectWithTimeout(hostname, port, PRIMARY_TIMEOUT);
+            return { socket, server: { hostname, port, original: primaryIP } };
+        } catch (e) {
+            FAILED_IP_CACHE.set(primaryIP, Date.now());
         }
     }
-    throw new Error(`所有节点连接失败`);
+    let candidates = backupIPs.filter(ip => !FAILED_IP_CACHE.has(ip));
+    if (candidates.length === 0) {
+        if (backupIPs.length > 0) {
+            FAILED_IP_CACHE.clear();
+            FAILED_IP_CACHE.set(primaryIP, Date.now());
+            candidates = backupIPs;
+        } else {
+             throw new Error(`主IP连接失败，且无可用备选IP`);
+        }
+    }
+    for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    let lastError = null;
+    for (const s of candidates) {
+        const { hostname, port } = IPParser.parseConnectionAddress(s);
+        try {
+            const socket = await connectWithTimeout(hostname, port, BACKUP_TIMEOUT);
+            return { socket, server: { hostname, port, original: s } };
+        } catch (err) {
+            FAILED_IP_CACHE.set(s, Date.now());
+            lastError = err;
+        }
+    }
+    throw new Error(`所有节点连接失败 (主节点+备选节点)，最后错误: ${lastError?.message}`);
 }
 
 function safeCloseWebSocket(socket) { try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) { } }
@@ -662,186 +619,223 @@ async function forwardataudp(udpChunk, webSocket, respHeader) {
 	} catch (error) {}
 }
 
-async function socks5Connect(targetHost, targetPort, initialData, proxyConf) {
-	const { username, password, hostname, port } = proxyConf;
-	const socket = connect({ hostname, port }), writer = socket.writable.getWriter(), reader = socket.readable.getReader();
-	try {
-		const authMethods = username && password ? new Uint8Array([0x05, 0x02, 0x00, 0x02]) : new Uint8Array([0x05, 0x01, 0x00]);
-		await writer.write(authMethods);
-		let response = await reader.read();
-		if (response.done || response.value.byteLength < 2) throw new Error('S5 method selection failed');
-		const selectedMethod = new Uint8Array(response.value)[1];
-		if (selectedMethod === 0x02) {
-			if (!username || !password) throw new Error('S5 requires authentication');
-			const userBytes = new TextEncoder().encode(username), passBytes = new TextEncoder().encode(password);
-			const authPacket = new Uint8Array([0x01, userBytes.length, ...userBytes, passBytes.length, ...passBytes]);
-			await writer.write(authPacket);
-			response = await reader.read();
-			if (response.done || new Uint8Array(response.value)[1] !== 0x00) throw new Error('S5 authentication failed');
-		} else if (selectedMethod !== 0x00) throw new Error(`S5 unsupported auth method`);
-		const hostBytes = new TextEncoder().encode(targetHost);
-		const connectPacket = new Uint8Array([0x05, 0x01, 0x00, 0x03, hostBytes.length, ...hostBytes, targetPort >> 8, targetPort & 0xff]);
-		await writer.write(connectPacket);
-		response = await reader.read();
-		if (response.done || new Uint8Array(response.value)[1] !== 0x00) throw new Error('S5 connection failed');
-		if (initialData && initialData.byteLength > 0) await writer.write(initialData);
-		writer.releaseLock(); reader.releaseLock();
-		return socket;
-	} catch (error) {
-		try { writer.releaseLock() } catch (e) { }
-		try { reader.releaseLock() } catch (e) { }
-		try { socket.close() } catch (e) { }
-		throw error;
-	}
+async function socks5Connect(addressRemote, portRemote, proxyAddress) {
+    const { username, password, hostname, port } = proxyAddress;
+    const socket = connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+    await socket.opened;
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+    const encoder = new TextEncoder();
+    let currentBuffer = new Uint8Array(0);
+
+    async function readExact(len) {
+        const tm = new Promise((_, r) => setTimeout(() => r(new Error('Timeout')), 5000));
+        while (currentBuffer.length < len) {
+            const res = await Promise.race([reader.read(), tm]);
+            if (res.done) throw new Error('Closed');
+            const n = new Uint8Array(currentBuffer.length + res.value.length);
+            n.set(currentBuffer); n.set(res.value, currentBuffer.length);
+            currentBuffer = n;
+        }
+        let ret = currentBuffer.slice(0, len);
+        currentBuffer = currentBuffer.slice(len);
+        return ret;
+    }
+
+    try {
+        await writer.write(username && password ? new Uint8Array([5, 2, 0, 2]) : new Uint8Array([5, 1, 0]));
+        let authRes = await readExact(2);
+        if (authRes[1] === 0x02) {
+            const userBytes = encoder.encode(username);
+            const passBytes = encoder.encode(password);
+            const authBuf = new Uint8Array(3 + userBytes.length + passBytes.length);
+            authBuf.set([1, userBytes.length], 0);
+            authBuf.set(userBytes, 2);
+            authBuf.set([passBytes.length], 2 + userBytes.length);
+            authBuf.set(passBytes, 3 + userBytes.length);
+            await writer.write(authBuf);
+            let logRes = await readExact(2);
+            if (logRes[1] !== 0x00) throw new Error('Auth fail');
+        }
+        const hostBytes = encoder.encode(addressRemote);
+        const reqBuf = new Uint8Array(5 + hostBytes.length + 2);
+        reqBuf.set([5, 1, 0, 3, hostBytes.length], 0);
+        reqBuf.set(hostBytes, 5);
+        reqBuf.set([portRemote >> 8, portRemote & 0xff], 5 + hostBytes.length);
+        await writer.write(reqBuf);
+
+        let repRes = await readExact(4);
+        if (repRes[1] !== 0x00) throw new Error('SOCKS5 fail');
+        
+        let bndLen = 0;
+        if (repRes[3] === 1) {
+            bndLen = 4;
+        } else if (repRes[3] === 3) {
+            let dlen = await readExact(1);
+            bndLen = dlen[0];
+        } else if (repRes[3] === 4) {
+            bndLen = 16;
+        }
+        
+        if (bndLen > 0) {
+            await readExact(bndLen + 2);
+        }
+        
+        writer.releaseLock();
+        reader.releaseLock();
+        
+        if (currentBuffer.length > 0) {
+            const ts = new TransformStream();
+            const tsWriter = ts.writable.getWriter();
+            tsWriter.write(currentBuffer);
+            socket.readable.pipeTo(ts.writable).catch(() => safeCloseSocket(socket));
+            return { readable: ts.readable, writable: socket.writable, close: () => safeCloseSocket(socket) };
+        }
+        return socket;
+    } catch (e) {
+        try { writer.releaseLock(); reader.releaseLock(); socket.close(); } catch (err) {}
+        throw e;
+    }
 }
 
-async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = false, proxyConf) {
-	const { username, password, hostname, port } = proxyConf;
-	const socket = HTTPS代理 ? connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: false }) : connect({ hostname, port });
-	const writer = socket.writable.getWriter(), reader = socket.readable.getReader();
-	const encoder = new TextEncoder(), decoder = new TextDecoder();
-	try {
-		if (HTTPS代理) await socket.opened;
-		const auth = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
-		const request = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\nHost: ${targetHost}:${targetPort}\r\n${auth}User-Agent: Mozilla/5.0\r\nConnection: keep-alive\r\n\r\n`;
-		await writer.write(encoder.encode(request));
-		writer.releaseLock();
-		let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
-		while (headerEndIndex === -1 && bytesRead < 8192) {
-			const { done, value } = await reader.read();
-			if (done || !value) throw new Error(`HTTP 代理在返回 CONNECT 响应前关闭连接`);
-			responseBuffer = new Uint8Array([...responseBuffer, ...value]);
-			bytesRead = responseBuffer.length;
-			const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 0x0d && responseBuffer[i + 1] === 0x0a && responseBuffer[i + 2] === 0x0d && responseBuffer[i + 3] === 0x0a);
-			if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
-		}
-		if (headerEndIndex === -1) throw new Error('代理 CONNECT 响应头无效');
-		const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split('\r\n')[0].match(/HTTP\/\d\.\d\s+(\d+)/);
-		const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
-		if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
-		reader.releaseLock();
-		if (initialData && initialData.byteLength > 0) {
-			const rw = socket.writable.getWriter();
-			await rw.write(initialData);
-			rw.releaseLock();
-		}
-		if (bytesRead > headerEndIndex) {
-			const { readable, writable } = new TransformStream();
-			const transformWriter = writable.getWriter();
-			await transformWriter.write(responseBuffer.subarray(headerEndIndex, bytesRead));
-			transformWriter.releaseLock();
-			socket.readable.pipeTo(writable).catch(() => { });
-			return { readable, writable: socket.writable, closed: socket.closed, close: () => socket.close() };
-		}
-		return socket;
-	} catch (error) {
-		try { writer.releaseLock() } catch (e) { }
-		try { reader.releaseLock() } catch (e) { }
-		try { socket.close() } catch (e) { }
-		throw error;
-	}
+async function httpConnect(addressRemote, portRemote, proxyAddress, isHttps = false) {
+    const { username, password, hostname, port } = proxyAddress;
+    const socket = isHttps ? connect({ hostname, port }, { secureTransport: 'on', allowHalfOpen: false }) : connect({ hostname, port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+    if (isHttps) await socket.opened;
+    const writer = socket.writable.getWriter();
+    const reader = socket.readable.getReader();
+    const encoder = new TextEncoder();
+    try {
+        const authHeader = username && password ? `Proxy-Authorization: Basic ${btoa(`${username}:${password}`)}\r\n` : '';
+        const connectRequest = `CONNECT ${addressRemote}:${portRemote} HTTP/1.1\r\nHost: ${addressRemote}:${portRemote}\r\n${authHeader}User-Agent: Mozilla/5.0\r\nConnection: Keep-Alive\r\n\r\n`;
+        await writer.write(encoder.encode(connectRequest));
+        
+        let responseBuffer = new Uint8Array(0);
+        let headerFound = false;
+        const tm = new Promise((_, r) => setTimeout(() => r(new Error('Timeout')), 5000));
+        
+        while (!headerFound) {
+            const res = await Promise.race([reader.read(), tm]);
+            if (res.done) throw new Error('Closed');
+            const newBuffer = new Uint8Array(responseBuffer.length + res.value.length);
+            newBuffer.set(responseBuffer);
+            newBuffer.set(res.value, responseBuffer.length);
+            responseBuffer = newBuffer;
+            
+            const respText = new TextDecoder().decode(responseBuffer);
+            const doubleCRLF = respText.indexOf('\r\n\r\n');
+            const doubleLF = respText.indexOf('\n\n');
+            let endPos = -1, sepLen = 0;
+            
+            if (doubleCRLF !== -1) { endPos = doubleCRLF; sepLen = 4; } 
+            else if (doubleLF !== -1) { endPos = doubleLF; sepLen = 2; }
+            
+            if (endPos !== -1) {
+                const headers = respText.substring(0, endPos);
+                if (!/^HTTP\/\d\.\d\s+2\d\d/i.test(headers)) {
+                    throw new Error('HTTP proxy failed');
+                }
+                const remainingData = responseBuffer.subarray(endPos + sepLen);
+                writer.releaseLock();
+                reader.releaseLock();
+                if (remainingData.length > 0) {
+                    const ts = new TransformStream();
+                    const tsWriter = ts.writable.getWriter();
+                    tsWriter.write(remainingData);
+                    socket.readable.pipeTo(ts.writable).catch(() => safeCloseSocket(socket));
+                    return { readable: ts.readable, writable: socket.writable, close: () => safeCloseSocket(socket) };
+                }
+                return socket;
+            }
+        }
+    } catch (err) {
+        try { writer.releaseLock(); reader.releaseLock(); socket.close(); } catch(e) {}
+        throw err;
+    }
+}
+
+async function createConnection(host, port, proxyCtx) {
+    const { enableType, global, parsedAddress } = proxyCtx;
+    const tryDirect = async () => {
+        try {
+            const s = connect({ hostname: host, port: port, connectTimeout: globalTimeout, allowHalfOpen: true, noDelay: true });
+            await s.opened;
+            return s;
+        } catch (e) {
+            return null;
+        }
+    };
+    const tryProxy = async () => {
+        if (!enableType || !parsedAddress) return null;
+        try {
+            if (enableType === 'socks5') return await socks5Connect(host, port, parsedAddress);
+            if (enableType === 'http') return await httpConnect(host, port, parsedAddress, false);
+            if (enableType === 'https') return await httpConnect(host, port, parsedAddress, true);
+        } catch (e) {
+            return null;
+        }
+        return null;
+    };
+    const tryReverse = async () => {
+        try {
+            const { socket } = await universalConnectWithFailover();
+            return socket;
+        } catch (e) {
+            return null;
+        }
+    };
+    let sock = null;
+    if (global) {
+        sock = await tryProxy();
+        if (!sock) sock = await tryDirect();
+    } else {
+        sock = await tryDirect();
+        if (!sock) sock = await tryProxy();
+    }
+    if (!sock) {
+        sock = await tryReverse();
+    }
+    if (!sock) {
+        throw new Error(`连接失败: 直连/代理/反代三层均不可用. 目标: ${host}:${port}`);
+    }
+    return sock;
 }
 
 async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
-    const proxyEnabled = proxyCtx?.enableType || (cc?.proxyConfig?.enabled ? cc?.proxyConfig?.type : null);
-    const proxyGlobal = proxyCtx?.global ?? cc?.proxyConfig?.global;
-    const proxyAddress = proxyCtx?.parsedAddress;
-
-    const tryDirect = async (data) => {
-        try {
-            const s = connect({ hostname: host, port: portNum });
-            await Promise.race([ s.opened, new Promise((_, r) => setTimeout(() => r(new Error('timeout')), 3000)) ]);
-            if (data && data.byteLength > 0) {
-                const w = s.writable.getWriter();
-                await w.write(data);
-                w.releaseLock();
-            }
-            return s;
-        } catch (e) { return null; }
-    };
-
-    const tryProxy = async (data) => {
-        if (!proxyEnabled || !proxyAddress) return null;
-        try {
-            let s;
-            if (proxyEnabled === 'socks5') s = await socks5Connect(host, portNum, data, proxyAddress);
-            else if (proxyEnabled === 'http') s = await httpConnect(host, portNum, data, false, proxyAddress);
-            else if (proxyEnabled === 'https') s = await httpConnect(host, portNum, data, true, proxyAddress);
-            return s;
-        } catch (e) { return null; }
-    };
-
-    const tryReverseFDC = async (data) => {
-        try {
-            const { socket } = await universalConnectWithFailover();
-            if (data && data.byteLength > 0) {
-                const w = socket.writable.getWriter();
-                await w.write(data);
-                w.releaseLock();
-            }
-            return socket;
-        } catch (e) { return null; }
-    };
-
-    const establish3LayerConnection = async (data) => {
-        let sock = null;
-        if (proxyEnabled && proxyGlobal) {
-            sock = await tryProxy(data);
-            if (!sock) sock = await tryDirect(data);
-        } else {
-            sock = await tryDirect(data);
-            if (!sock && proxyEnabled) sock = await tryProxy(data);
-        }
-        if (!sock) {
-            sock = await tryReverseFDC(data);
-        }
-        if (!sock) {
-            throw new Error(`连接失败: 直连/代理/反代三层均不可用. 目标: ${host}:${portNum}`);
-        }
-        return sock;
-    };
-
     if (remoteConnWrapper.connectingPromise) {
         await remoteConnWrapper.connectingPromise;
         return;
     }
 
     const connectTask = (async () => {
-        const newSocket = await establish3LayerConnection(rawData);
-        remoteConnWrapper.socket = newSocket;
-        if (newSocket.closed) newSocket.closed.catch(() => {}).finally(() => safeCloseSocket(ws));
-        
-        connectStreams(newSocket, ws, respHeader, async () => {
-            if (remoteConnWrapper.socket !== newSocket) return;
-            if (typeof remoteConnWrapper.retryConnect === 'function') {
-                await remoteConnWrapper.retryConnect();
+        const tcpSocket = await createConnection(host, portNum, proxyCtx);
+        remoteConnWrapper.socket = tcpSocket;
+
+        if (tcpSocket.closed) tcpSocket.closed.catch(() => {}).finally(() => safeCloseSocket(ws));
+
+        const writer = tcpSocket.writable.getWriter();
+        try {
+            if (rawData && rawData.byteLength > 0) {
+                await writer.write(rawData);
             }
-        });
+        } catch (e) {
+            safeCloseSocket(tcpSocket);
+            safeCloseWebSocket(ws);
+            return;
+        } finally {
+            try { writer.releaseLock(); } catch(e) {}
+        }
+
+        connectStreams(tcpSocket, ws, respHeader, null);
     })();
 
     remoteConnWrapper.connectingPromise = connectTask;
     remoteConnWrapper.retryConnect = async () => {
-        if (remoteConnWrapper.connectingPromise) {
-            await remoteConnWrapper.connectingPromise;
-            return;
-        }
-        const retryTask = (async () => {
-            const newSocket = await establish3LayerConnection(null);
-            remoteConnWrapper.socket = newSocket;
-            if (newSocket.closed) newSocket.closed.catch(() => {}).finally(() => safeCloseSocket(ws));
-            connectStreams(newSocket, ws, null, null);
-        })();
-        remoteConnWrapper.connectingPromise = retryTask;
-        try { await retryTask; } finally { remoteConnWrapper.connectingPromise = null; }
+        return;
     };
 
-    try { 
-        await connectTask; 
-    } finally { 
-        if (remoteConnWrapper.connectingPromise === connectTask) {
-            remoteConnWrapper.connectingPromise = null; 
-        }
-    }
+    try { await connectTask; } 
+    finally { if (remoteConnWrapper.connectingPromise === connectTask) remoteConnWrapper.connectingPromise = null; }
 }
 
 async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
@@ -2215,7 +2209,7 @@ async function saveConfig(e) {
                     <div class="form-group">
                         <label>反代 IP / 域名 / TXT记录 (中转连接)</label>
                         <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。支持 .william 结尾的动态TXT记录。</span></div>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code> 或 <code>.william</code> 结尾的TXT记录<br>用于 Worker 实际回源连接。</span></div>
                     </div>
                 </div>
             </div>
@@ -2358,9 +2352,9 @@ async function saveConfig(e) {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label>DNS DoH 地址 (UDP 53 转发)</label>
+                    <label>DNS DoH 地址 (UDP 53 / 动态解析 / ECH 配置拉取)</label>
                     <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
-                    <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求。</span></div>
+                    <div class="help-text"><i class="fas fa-server"></i><span>必须是支持 application/dns-message 的 DoH 地址，底层强依赖。</span></div>
                 </div>
             </div>
 
