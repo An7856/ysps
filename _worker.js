@@ -1,42 +1,33 @@
 import { connect } from 'cloudflare:sockets';
 
+let p = 'dylj';
+let fdc = [''];
+let uid = '';
+let yx = ['ip.sb', 'time.is', 'cdns.doon.eu.org'];
+let dns = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
+let dyhd = atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw==');
+let dypz = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ==');
+let stp = '';
 const KP = 'admin_password', KU = 'user_uuid', K_SETTINGS = 'SYSTEM_CONFIG';
+let cc = null, ct = 0, CD = 60 * 1000;
+const STALE_CD = 60 * 60 * 1000;
+const loginAttempts = new Map();
 const SESSION_DURATION = 8 * 60 * 60 * 1000;
+let ev = true, et = false, tp = '';
+let protocolConfig = { ev, et, tp };
+let globalTimeout = 8000;
+let cachedUsage = null;
+let lastUsageTime = 0;
+let cachedAdminPwd = null;
+const FAILED_IP_CACHE = new Map();
 const FAILED_TTL = 10 * 60 * 1000;
+const DIRECT_FAIL_CACHE = new Map();
 const DIRECT_FAIL_TTL = 30 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-const loginAttempts = new Map();
-const FAILED_IP_CACHE = new Map();
-const DIRECT_FAIL_CACHE = new Map();
-
-let cachedAdminPwd = null;
 let cachedTrojanHash = null;
 let cachedTrojanPwd = null;
 let cachedProxyIPList = [];
 let cachedProxyIP = '';
-let cachedUsage = null;
-let lastUsageTime = 0;
-
-let GLOBAL_CONFIG_CACHE = null;
-let CONFIG_CACHE_TIME = 0;
-
-const DEFAULT_CONFIG = {
-    yx: ['ip.sb', 'time.is', 'cdns.doon.eu.org'],
-    fdc: [''],
-    uid: '',
-    dyhd: atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw=='),
-    dypz: atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ=='),
-    stp: '',
-    dns: 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=',
-    ev: true,
-    et: false,
-    tp: '',
-    klp: 'login',
-    cfConfig: {},
-    proxyConfig: {},
-    transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
-};
 
 function uniqueIPList(list) {
     const seen = new Set();
@@ -121,42 +112,37 @@ const ResponseBuilder = {
     redirect(url, status = 302, extraHeaders = {}) { return new Response(null, { status, headers: { 'Location': url, ...extraHeaders } }); }
 };
 
+const ConfigUtils = {
+    async loadAllConfig(env) {
+        const kv = env.SJ || env.sj;
+        const defaultConfig = {
+            yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns,
+            ev: true, et: false, tp: '',
+            klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
+            cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
+        };
+        if (!kv) return defaultConfig;
+        try {
+            const unifiedConfig = await kv.get(K_SETTINGS, 'json');
+            if (unifiedConfig) {
+                const configUid = unifiedConfig.uid || uid;
+                return {
+                    yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
+                    dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns,
+                    ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
+                    cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
+                    klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
+                };
+            }
+        } catch (e) {}
+        return defaultConfig;
+    }
+};
+
 const ErrorHandler = {
     internalError(message = 'Internal Server Error') { return ResponseBuilder.text(message, 500); },
     unauthorized(message = 'Unauthorized') { return ResponseBuilder.text(message, 401); }
 };
-
-async function getRequestContext(env) {
-    const now = Date.now();
-    if (GLOBAL_CONFIG_CACHE && (now - CONFIG_CACHE_TIME < 60000)) {
-        return GLOBAL_CONFIG_CACHE;
-    }
-    const kv = env.SJ || env.sj;
-    let config = { ...DEFAULT_CONFIG };
-    if (env.FDIP) config.fdc = env.FDIP.split(',').map(s => s.trim());
-    if (env.UUID || env.uuid || env.AUTH) config.uid = env.UUID || env.uuid || env.AUTH;
-    if (kv) {
-        try {
-            const stored = await kv.get(K_SETTINGS, 'json');
-            if (stored) {
-                config = { ...config, ...stored };
-                if (stored.protocolConfig) {
-                    config.ev = stored.protocolConfig.ev ?? config.ev;
-                    config.et = stored.protocolConfig.et ?? config.et;
-                    config.tp = stored.protocolConfig.tp ?? config.tp;
-                }
-            }
-        } catch (e) {}
-    }
-    config.globalTimeout = parseInt(env.CONNECT_TIMEOUT) || 8000;
-    config.uuidSet = new Set((config.uid || '').split(',').map(s => s.trim().toLowerCase()));
-    config.parsedIPs = config.yx.map(ip => IPParser.parsePreferredIP(ip));
-    config.validFDCs = config.fdc.filter(s => s && s.trim() !== '');
-
-    GLOBAL_CONFIG_CACHE = Object.freeze(config);
-    CONFIG_CACHE_TIME = now;
-    return GLOBAL_CONFIG_CACHE;
-}
 
 async function gP(env) {
     if (cachedAdminPwd) return cachedAdminPwd;
@@ -235,19 +221,19 @@ function setSessionCookie(token) {
 
 function clearSessionCookie() { return `cf_worker_session=; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=Thu, 01 Jan 1970 00:00:00 GMT`; }
 
-async function requireAuth(req, env, appCtx, handler) {
+async function requireAuth(req, env, handler) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
     if (!sessionResult.valid) return getPoemPage();
     if (sessionResult.refreshed) {
-        const response = await handler(req, env, appCtx);
+        const response = await handler(req, env);
         response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
         return response;
     }
-    return handler(req, env, appCtx);
+    return handler(req, env);
 }
 
-async function handleLogin(req, env, appCtx) {
+async function handleLogin(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
     const url = new URL(req.url);
@@ -267,15 +253,15 @@ async function handleLogin(req, env, appCtx) {
         if (password === storedPassword) {
             loginAttempts.delete(clientIp);
             const newToken = await signToken(env, Date.now() + SESSION_DURATION);
-            const response = await getMainPageContent(host, base, await gU(env), appCtx);
+            const response = await getMainPageContent(host, base, storedPassword, await gU(env), env);
             response.headers.set('Set-Cookie', setSessionCookie(newToken));
             return response;
         } else {
             loginAttempts.set(clientIp, { count: attempt.count + 1, time: now });
             await new Promise(resolve => setTimeout(resolve, 2000));
-            return getLoginPage(host, base, appCtx, true, false);
+            return getLoginPage(host, base, true, false);
         }
-    } else return getLoginPage(host, base, appCtx, false, passwordChanged);
+    } else return getLoginPage(host, base, false, passwordChanged);
 }
 
 async function handleLogout(req, env) {
@@ -284,12 +270,50 @@ async function handleLogout(req, env) {
     return ResponseBuilder.redirect(`${base}/`, 302, { 'Set-Cookie': clearSessionCookie() });
 }
 
-async function saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, klp, newDyhd, newDypz, newStp, newDns, transCfg, appCtx) {
+async function optimizeConfigLoading(env, ctx) {
+    const now = Date.now();
+    if (cc && (now - ct) < CD) return cc;
+    const loadConfigTask = async () => {
+        try {
+            if (env.CONNECT_TIMEOUT) globalTimeout = parseInt(env.CONNECT_TIMEOUT) || 8000;
+            const config = await ConfigUtils.loadAllConfig(env);
+            const newConfig = {
+                ...config,
+                timestamp: now,
+                parsedIPs: config.yx.map(ip => IPParser.parsePreferredIP(ip)),
+                validFDCs: config.fdc.filter(s => s && s.trim() !== '')
+            };
+            cc = newConfig;
+            ct = now;
+            yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns;
+            ev = cc.ev; et = cc.et; tp = cc.tp;
+            protocolConfig = { ev, et, tp };
+            return cc;
+        } catch (error) {
+            if (cc) return cc;
+            return {
+                yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns,
+                ev: ev, et: et, tp: tp,
+                parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
+                validFDCs: fdc.filter(s => s && s.trim() !== ''),
+                uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
+                proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
+            };
+        }
+    };
+    if (cc && (now - ct) < STALE_CD && ctx) {
+        ctx.waitUntil(loadConfigTask().catch(console.error));
+        return cc;
+    }
+    return await loadConfigTask();
+}
+
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
-        yx: cfipArr, fdc: fdipArr, uid: u || appCtx.uid, dyhd: newDyhd || appCtx.dyhd, dypz: newDypz || appCtx.dypz, stp: newStp || appCtx.stp, dns: newDns || appCtx.dns,
-        protocolConfig: protocolCfg || { ev: appCtx.ev, et: appCtx.et, tp: appCtx.tp },
+        yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns,
+        protocolConfig: protocolCfg || { ev, et, tp },
         cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
         klp: klp || 'login'
     };
@@ -297,13 +321,19 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, prox
     if (u) ps.push(kv.put(KU, u));
     if (klp) ps.push(kv.put(KP, await gP(env)));
     await Promise.all(ps);
-    GLOBAL_CONFIG_CACHE = null;
+    const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
+    cc = {
+        ...unifiedConfig, timestamp: Date.now(),
+        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp,
+        parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fdipArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
+    };
+    ct = Date.now();
     return true;
 }
 
-async function DoH查询JSON(domain, type, appCtx) {
+async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
-        let url = appCtx.dns || 'https://cloudflare-dns.com/dns-query';
+        let url = doh;
         if (!url.includes('?')) url += '?'; else url += '&';
         url += `name=${domain}&type=${type}`;
         const res = await fetch(url, { headers: { 'Accept': 'application/dns-json' } });
@@ -319,9 +349,9 @@ async function DoH查询JSON(domain, type, appCtx) {
     } catch (e) { return []; }
 }
 
-async function getECH(host, appCtx) {
+async function getECH(host) {
     try {
-        const answers = await DoH查询JSON(host, 'HTTPS', appCtx);
+        const answers = await DoH查询(host, 'HTTPS');
         if (!answers.length) return '';
         for (const ans of answers) {
             if (ans.type === 65 && ans.data) {
@@ -333,7 +363,7 @@ async function getECH(host, appCtx) {
     } catch { return ''; }
 }
 
-async function resolveAddressAndPort(proxyIPStr, targetHost, UUID, appCtx) {
+async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
     if (!cachedProxyIPList || cachedProxyIPList.length === 0 || cachedProxyIP !== proxyIPStr) {
         const ipArr = proxyIPStr.split(',').map(s => s.trim()).filter(Boolean);
         let finalTargets = [];
@@ -356,7 +386,7 @@ async function resolveAddressAndPort(proxyIPStr, targetHost, UUID, appCtx) {
             }
             if (addr.includes('.william')) {
                 try {
-                    let txtRecords = await DoH查询JSON(addr, 'TXT', appCtx);
+                    let txtRecords = await DoH查询(addr, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
                     if (txtData.length > 0) {
                         let data = txtData[0];
@@ -405,10 +435,10 @@ async function connectWithTimeout(host, port, timeoutMs) {
     }
 }
 
-async function universalConnectWithFailover(targetHost, targetPort, appCtx) {
-    let valid = appCtx.validFDCs || appCtx.fdc.filter(s => s && s.trim() !== '');
+async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
+    let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
-    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, appCtx.uid, appCtx);
+    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
     if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
     const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
     const now = Date.now();
@@ -628,9 +658,9 @@ async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = fa
 	}
 }
 
-async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx, appCtx) {
-    const proxyEnabled = proxyCtx?.enableType || (appCtx.proxyConfig?.enabled ? appCtx.proxyConfig?.type : null);
-    const proxyGlobal = proxyCtx?.global ?? appCtx.proxyConfig?.global;
+async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
+    const proxyEnabled = proxyCtx?.enableType || (cc?.proxyConfig?.enabled ? cc?.proxyConfig?.type : null);
+    const proxyGlobal = proxyCtx?.global ?? cc?.proxyConfig?.global;
     const proxyAddress = proxyCtx?.parsedAddress;
 
     const tryDirect = async (data) => {
@@ -659,7 +689,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 
     const tryReverseFDC = async (data) => {
         try {
-            const { socket } = await universalConnectWithFailover(host, portNum, appCtx);
+            const { socket } = await universalConnectWithFailover();
             if (data && data.byteLength > 0) {
                 const w = socket.writable.getWriter();
                 await w.write(data);
@@ -743,27 +773,41 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 }
 
 async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
-	let hasData = false;
-	if (headerData && headerData.byteLength > 0) {
-		if (webSocket.readyState === 1) {
-			webSocket.send(headerData);
-			hasData = true;
-		}
-	}
+	let header = headerData, hasData = false, reader, useBYOB = false;
+	const 发送块 = async (chunk) => {
+		if (webSocket.readyState !== 1) throw new Error('ws.readyState is not open');
+		if (header) {
+			const merged = new Uint8Array(header.length + chunk.byteLength);
+			merged.set(header, 0); merged.set(chunk, header.length);
+			webSocket.send(merged.buffer);
+			header = null;
+		} else webSocket.send(chunk);
+	};
+	try { reader = remoteSocket.readable.getReader({ mode: 'byob' }); useBYOB = true } catch (e) { reader = remoteSocket.readable.getReader() }
 	try {
-		await remoteSocket.readable.pipeTo(new WritableStream({
-			write(chunk) {
-				if (webSocket.readyState === 1) {
-					webSocket.send(chunk);
-					hasData = true;
-				}
-			},
-			close() { safeCloseSocket(webSocket); },
-			abort(e) { safeCloseSocket(webSocket); }
-		}));
-	} catch (err) {
-		safeCloseSocket(webSocket);
-	}
+		if (!useBYOB) {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				if (!value || value.byteLength === 0) continue;
+				hasData = true;
+				await 发送块(value instanceof Uint8Array ? value : new Uint8Array(value));
+			}
+		} else {
+			let mainBuf = new ArrayBuffer(512 * 1024), offset = 0;
+			while (true) {
+				const { done, value } = await reader.read(new Uint8Array(mainBuf, offset, 64 * 1024));
+				if (done) break;
+				if (!value || value.byteLength === 0) continue;
+				hasData = true;
+				mainBuf = value.buffer;
+				const len = value.byteLength;
+				offset += len;
+				if (offset > 0) { const p = new Uint8Array(mainBuf.slice(0, offset)); offset = 0; await 发送块(p); }
+			}
+		}
+	} catch (err) { safeCloseSocket(webSocket) }
+	finally { try { reader.cancel() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
 	if (!hasData && retryFunc) await retryFunc();
 }
 
@@ -776,7 +820,7 @@ function isSpeedTestSite(hostname) {
 	return false;
 }
 
-async function handleWSRequest(request, yourUUID, url, proxyCtx, appCtx) {
+async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	const WS套接字对 = new WebSocketPair();
 	const [clientSock, serverSock] = Object.values(WS套接字对);
 	serverSock.accept();
@@ -824,11 +868,11 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx, appCtx) {
 			}
 			if (await 写入远端(chunk)) return;
 			if (判断协议类型 === '木马') {
-				const 解析结果 = 解析木马请求(chunk, appCtx.tp || yourUUID);
+				const 解析结果 = 解析木马请求(chunk, tp || yourUUID);
 				if (解析结果?.hasError) throw new Error(解析结果.message);
 				const { port, hostname, rawClientData } = 解析结果;
 				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
-				await forwardataTCP(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx, appCtx);
+				await forwardataTCP(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx);
 			} else {
 				const 解析结果 = 解析魏烈思请求(chunk, yourUUID);
 				if (解析结果?.hasError) throw new Error(解析结果.message);
@@ -838,7 +882,7 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx, appCtx) {
 				const respHeader = new Uint8Array([version[0], 0]);
 				const rawData = chunk.slice(rawIndex);
 				if (isDnsQuery) return forwardataudp(rawData, serverSock, respHeader);
-				await forwardataTCP(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx, appCtx);
+				await forwardataTCP(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
 			}
 		},
 		close() { 释放远端写入器(); }, abort() { 释放远端写入器(); }
@@ -846,7 +890,7 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx, appCtx) {
 	return new Response(null, { status: 101, webSocket: clientSock });
 }
 
-async function handleGRPCRequest(request, yourUUID, proxyCtx, appCtx) {
+async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 	if (!request.body) return new Response('Bad Request', { status: 400 });
 	const reader = request.body.getReader();
 	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
@@ -938,11 +982,11 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx, appCtx) {
 							const 首包bytes = new Uint8Array(首包buffer);
 							if (判断是否是木马 === null) 判断是否是木马 = 首包bytes.byteLength >= 58 && 首包bytes[56] === 0x0d && 首包bytes[57] === 0x0a;
 							if (判断是否是木马) {
-								const 解析结果 = 解析木马请求(首包buffer, appCtx.tp || yourUUID);
+								const 解析结果 = 解析木马请求(首包buffer, tp || yourUUID);
 								if (解析结果?.hasError) throw new Error(解析结果.message);
 								const { port, hostname, rawClientData } = 解析结果;
 								if (isSpeedTestSite(hostname)) throw new Error('Speedtest blocked');
-								await forwardataTCP(hostname, port, rawClientData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx, appCtx);
+								await forwardataTCP(hostname, port, rawClientData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
 							} else {
 								const 解析结果 = 解析魏烈思请求(首包buffer, yourUUID);
 								if (解析结果?.hasError) throw new Error(解析结果.message);
@@ -953,7 +997,7 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx, appCtx) {
 								grpcBridge.send(respHeader);
 								const rawData = 首包buffer.slice(rawIndex);
 								if (isDnsQuery) await forwardataudp(rawData, grpcBridge, null);
-								else await forwardataTCP(hostname, port, rawData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx, appCtx);
+								else await forwardataTCP(hostname, port, rawData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
 							}
 						}
 					}
@@ -965,9 +1009,9 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx, appCtx) {
 	}), { status: 200, headers: grpcHeaders });
 }
 
-async function 读取XHTTP首包(reader, token, appCtx) {
+async function 读取XHTTP首包(reader, token) {
 	const decoder = new TextDecoder();
-	const 密码哈希 = sha224(appCtx.tp || token);
+	const 密码哈希 = sha224(tp || token);
 	const 密码哈希字节 = new TextEncoder().encode(密码哈希);
 	const 尝试解析VLESS首包 = (data) => {
 		const length = data.byteLength;
@@ -1022,10 +1066,10 @@ async function 读取XHTTP首包(reader, token, appCtx) {
 	return null;
 }
 
-async function handleXHTTPRequest(request, yourUUID, proxyCtx, appCtx) {
+async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
 	if (!request.body) return new Response('Bad Request', { status: 400 });
 	const reader = request.body.getReader();
-	const 首包 = await 读取XHTTP首包(reader, yourUUID, appCtx);
+	const 首包 = await 读取XHTTP首包(reader, yourUUID);
 	if (!首包) { try { reader.releaseLock() } catch (e) { } return new Response('Invalid request', { status: 400 }); }
 	if (isSpeedTestSite(首包.hostname)) { try { reader.releaseLock() } catch (e) { } return new Response('Forbidden', { status: 403 }); }
 	if (首包.isUDP && 首包.port !== 53) { try { reader.releaseLock() } catch (e) { } return new Response('UDP is not supported', { status: 400 }); }
@@ -1056,7 +1100,7 @@ async function handleXHTTPRequest(request, yourUUID, proxyCtx, appCtx) {
 			};
 			try {
 				if (首包.isUDP) { if (首包.rawData?.byteLength) { await forwardataudp(首包.rawData, xhttpBridge, udpRespHeader); udpRespHeader = null; } }
-				else await forwardataTCP(首包.hostname, 首包.port, 首包.rawData, xhttpBridge, 首包.respHeader, remoteConnWrapper, yourUUID, proxyCtx, appCtx);
+				else await forwardataTCP(首包.hostname, 首包.port, 首包.rawData, xhttpBridge, 首包.respHeader, remoteConnWrapper, yourUUID, proxyCtx);
 				while (true) {
 					const { done, value } = await reader.read();
 					if (done) break;
@@ -1072,90 +1116,121 @@ async function handleXHTTPRequest(request, yourUUID, proxyCtx, appCtx) {
 	}), { status: 200, headers: responseHeaders });
 }
 
-function Clash订阅配置文件热补丁(Clash_原始订阅内容, appCtx, host) {
-    const lines = Clash_原始订阅内容.replace(/mode:\s*Rule\b/g, 'mode: rule').split('\n');
-    const out = [];
-    const ECH启用 = appCtx.transConfig?.ech;
-    const ECH_SNI = appCtx.transConfig?.ech_sni || host;
-    const ECH_DNS = "https://dns.alidns.com/dns-query";
-    const 需要处理gRPC = appCtx.transConfig?.grpc;
-    const gRPCUserAgentYAML = `"Mozilla/5.0"`;
-
-    let inProxies = false;
-    let inDns = false;
-    let dnsInserted = false;
-
-    if (!Clash_原始订阅内容.includes('dns:')) {
-        out.push(`dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4`);
-        if (ECH启用) {
-            out.push(`  nameserver-policy:\n    "${ECH_SNI}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`);
-        }
-    }
-
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmed = line.trim();
-
-        if (trimmed === 'dns:') inDns = true;
-        if (inDns && trimmed.match(/^[a-zA-Z]/) && trimmed !== 'dns:') {
-            inDns = false;
-            if (!dnsInserted && ECH启用) {
-                out.push(`  nameserver-policy:\n    "${ECH_SNI}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`);
-                dnsInserted = true;
-            }
-        }
-
-        if (trimmed === 'proxies:') inProxies = true;
-        if (inProxies && trimmed.match(/^[a-zA-Z]/) && trimmed !== 'proxies:') inProxies = false;
-
-        if (inProxies && trimmed.startsWith('- name:')) {
-            out.push(line);
-            let isTarget = false;
-            let buffer = [];
-            let j = i + 1;
-            let hasGrpcOpts = false;
-            let grpcIndent = "    ";
-            let networkIsGrpc = false;
-
-            while (j < lines.length) {
-                const nLine = lines[j];
-                const nTrim = nLine.trim();
-                if (nTrim.startsWith('- name:') || (nTrim.match(/^[a-zA-Z]/) && !nTrim.startsWith('-'))) break;
-                
-                if (nTrim.includes(`uuid: ${appCtx.uid}`) || nTrim.includes(`password: ${appCtx.uid}`) || nTrim.includes(`password: ${appCtx.tp}`)) isTarget = true;
-                if (nTrim.includes('network: grpc') || nTrim.includes("network: 'grpc'") || nTrim.includes('network: "grpc"')) networkIsGrpc = true;
-                if (nTrim.startsWith('grpc-opts:')) { hasGrpcOpts = true; grpcIndent = nLine.substring(0, nLine.indexOf('g')); }
-                
-                buffer.push(nLine);
-                j++;
-            }
-
-            if (isTarget && ECH启用) buffer.push(`    ech-opts:\n      enable: true\n      query-server-name: ${ECH_SNI}`);
-            if (需要处理gRPC && networkIsGrpc) {
-                if (!hasGrpcOpts) buffer.push(`    grpc-opts:\n      grpc-user-agent: ${gRPCUserAgentYAML}`);
-                else {
-                    for(let k=0; k<buffer.length; k++) {
-                        if (buffer[k].trim() === 'grpc-opts:') {
-                            buffer.splice(k+1, 0, `${grpcIndent}  grpc-user-agent: ${gRPCUserAgentYAML}`);
-                            break;
-                        }
-                    }
-                }
-            }
-            out.push(...buffer);
-            i = j - 1;
-            continue;
-        }
-        out.push(line);
-    }
-    return out.join('\n');
+function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON) {
+	const uuid = config_JSON.uid;
+	const ECH启用 = config_JSON.transConfig?.ech;
+	const HOSTS = [config_JSON.host];
+	const ECH_SNI = config_JSON.transConfig?.ech_sni || null;
+	const ECH_DNS = "https://dns.alidns.com/dns-query";
+	const gRPCUserAgent = "Mozilla/5.0";
+	const 需要处理gRPC = config_JSON.transConfig?.grpc;
+	const gRPCUserAgentYAML = JSON.stringify(gRPCUserAgent);
+	let clash_yaml = Clash_原始订阅内容.replace(/mode:\s*Rule\b/g, 'mode: rule');
+	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
+	const 添加InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
+		if (/grpc-user-agent\s*:/i.test(inner)) return all;
+		let content = inner.trim(); if (content.endsWith(',')) content = content.slice(0, -1).trim();
+		return `grpc-opts: {${content ? `${content}, grpc-user-agent: ${gRPCUserAgentYAML}` : `grpc-user-agent: ${gRPCUserAgentYAML}`}}`;
+	});
+	const 匹配到gRPC网络 = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
+	const 获取代理类型 = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
+	const 获取凭据值 = (nodeText, isFlowStyle) => {
+		const credentialField = 获取代理类型(nodeText) === 'trojan' ? 'password' : 'uuid';
+		const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
+		return nodeText.match(pattern)?.[1]?.trim() || null;
+	};
+	const 插入NameserverPolicy = (yaml, hostsEntries) => {
+		if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
+		const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			if (/^dns:\s*$/.test(line)) { inDnsBlock = true; continue; }
+			if (inDnsBlock && /^[a-zA-Z]/.test(line)) { dnsBlockEndIndex = i; break; }
+		}
+		const nameserverPolicyBlock = `  nameserver-policy:\n${hostsEntries}`;
+		if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
+		return lines.join('\n');
+	};
+	const 添加Flow格式gRPCUserAgent = (nodeText) => {
+		if (!匹配到gRPC网络(nodeText) || /grpc-user-agent\s*:/i.test(nodeText)) return nodeText;
+		if (/grpc-opts:\s*\{/i.test(nodeText)) return 添加InlineGrpcUserAgent(nodeText);
+		return nodeText.replace(/\}(\s*)$/, `, grpc-opts: {grpc-user-agent: ${gRPCUserAgentYAML}}}$1`);
+	};
+	const 添加Block格式gRPCUserAgent = (nodeLines, topLevelIndent) => {
+		const 顶级缩进 = ' '.repeat(topLevelIndent); let grpcOptsIndex = -1;
+		for (let idx = 0; idx < nodeLines.length; idx++) {
+			const line = nodeLines[idx]; if (!line.trim()) continue;
+			const indent = line.search(/\S/); if (indent !== topLevelIndent) continue;
+			if (/^\s*grpc-opts:\s*(?:#.*)?$/.test(line) || /^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(line)) { grpcOptsIndex = idx; break; }
+		}
+		if (grpcOptsIndex === -1) {
+			let insertIndex = -1;
+			for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
+			if (insertIndex >= 0) nodeLines.splice(insertIndex + 1, 0, `${顶级缩进}grpc-opts:`, `${顶级缩进}  grpc-user-agent: ${gRPCUserAgentYAML}`);
+			return nodeLines;
+		}
+		const grpcLine = nodeLines[grpcOptsIndex];
+		if (/^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(grpcLine)) { if (!/grpc-user-agent\s*:/i.test(grpcLine)) nodeLines[grpcOptsIndex] = 添加InlineGrpcUserAgent(grpcLine); return nodeLines; }
+		let blockEndIndex = nodeLines.length, 子级缩进 = topLevelIndent + 2, 已有gRPCUserAgent = false;
+		for (let idx = grpcOptsIndex + 1; idx < nodeLines.length; idx++) {
+			const line = nodeLines[idx], trimmed = line.trim(); if (!trimmed) continue;
+			const indent = line.search(/\S/); if (indent <= topLevelIndent) { blockEndIndex = idx; break; }
+			if (indent > topLevelIndent && 子级缩进 === topLevelIndent + 2) 子级缩进 = indent;
+			if (/^grpc-user-agent\s*:/.test(trimmed)) { 已有gRPCUserAgent = true; break; }
+		}
+		if (!已有gRPCUserAgent) nodeLines.splice(blockEndIndex, 0, `${' '.repeat(子级缩进)}grpc-user-agent: ${gRPCUserAgentYAML}`);
+		return nodeLines;
+	};
+	const 添加Block格式ECHOpts = (nodeLines, topLevelIndent) => {
+		let insertIndex = -1;
+		for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
+		if (insertIndex < 0) return nodeLines;
+		const indent = ' '.repeat(topLevelIndent);
+		const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
+		if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
+		nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
+		return nodeLines;
+	};
+	if (!/^dns:\s*(?:\n|$)/m.test(clash_yaml)) clash_yaml = baseDnsBlock + clash_yaml;
+	if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
+	if (ECH启用 && HOSTS.length > 0) {
+		const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
+		clash_yaml = 插入NameserverPolicy(clash_yaml, hostsEntries);
+	}
+	if (!ECH启用 && !需要处理gRPC) return clash_yaml;
+	const lines = clash_yaml.split('\n'); const processedLines = []; let i = 0;
+	while (i < lines.length) {
+		const line = lines[i], trimmedLine = line.trim();
+		if (trimmedLine.startsWith('- {')) {
+			let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+			while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
+			if (需要处理gRPC) fullNode = 添加Flow格式gRPCUserAgent(fullNode);
+			if (ECH启用 && 获取凭据值(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
+			processedLines.push(fullNode); i++;
+		} else if (trimmedLine.startsWith('- name:')) {
+			let nodeLines = [line], baseIndent = line.search(/\S/), topLevelIndent = baseIndent + 2; i++;
+			while (i < lines.length) {
+				const nextLine = lines[i], nextTrimmed = nextLine.trim();
+				if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
+				const nextIndent = nextLine.search(/\S/);
+				if (nextIndent <= baseIndent && nextTrimmed.startsWith('- ')) break;
+				if (nextIndent < baseIndent && nextTrimmed) break;
+				nodeLines.push(nextLine); i++;
+			}
+			let nodeText = nodeLines.join('\n');
+			if (需要处理gRPC && 匹配到gRPC网络(nodeText)) { nodeLines = 添加Block格式gRPCUserAgent(nodeLines, topLevelIndent); nodeText = nodeLines.join('\n'); }
+			if (ECH启用 && 获取凭据值(nodeText, false) === uuid.trim()) nodeLines = 添加Block格式ECHOpts(nodeLines, topLevelIndent);
+			processedLines.push(...nodeLines);
+		} else { processedLines.push(line); i++; }
+	}
+	return processedLines.join('\n');
 }
 
-async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, appCtx, host) {
-	const uuid = appCtx.uid;
+async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, config_JSON) {
+	const uuid = config_JSON.uid;
 	const fingerprint = "chrome";
-	const ECH_SNI = appCtx.transConfig?.ech_sni || host || null;
-	const ech_config = appCtx.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI, appCtx) : null;
+	const ECH_SNI = config_JSON.transConfig?.ech_sni || config_JSON.host || null;
+	const ech_config = config_JSON.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI) : null;
 	const sb_json_text = SingBox_原始订阅内容.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
 	try {
 		let config = JSON.parse(sb_json_text);
@@ -1244,13 +1319,13 @@ async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, ap
 	} catch (e) { return JSON.stringify(JSON.parse(sb_json_text), null, 2); }
 }
 
-async function genSurgeConfig(u, url, appCtx) {
+async function genSurgeConfig(u, url) {
     if (!u) return '';
     const wp = '/?ed=2560';
     const nodes = []; const nodeNames = [];
-    if (appCtx.et) {
-        const password = appCtx.tp || u;
-        appCtx.yx.forEach(item => {
+    if (et) {
+        const password = tp || u;
+        yx.forEach(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return;
             const { hostname, port, displayName } = ipData;
@@ -1259,9 +1334,9 @@ async function genSurgeConfig(u, url, appCtx) {
         });
     }
     if (nodes.length === 0) return '未启用Trojan协议';
-    if (appCtx.stp) {
+    if (stp) {
         try {
-            const response = await fetch(appCtx.stp);
+            const response = await fetch(stp);
             if (response.ok) {
                 let templateContent = await response.text();
                 templateContent = templateContent.replace(/\{nodes\}/g, nodes.join('\n'));
@@ -1273,49 +1348,49 @@ async function genSurgeConfig(u, url, appCtx) {
     return `#!MANAGED-CONFIG https://${url}/${u}?format=surge interval=86400 strict=true\n\n[General]\nskip-proxy = 192.168.0.0/24, 10.0.0.0/8, 172.16.0.0/12, 127.0.0.1, localhost, *.local\nexclude-simple-hostnames = true\ndns-server = 223.5.5.5, 114.114.114.114\nwifi-assist = true\nipv6 = false\n\n[Proxy]\n${nodes.join('\n')}\n[Proxy Group]\n🌎 节点选择 = select, ${nodeNames.join(', ')}\n\n[Rule]\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/blocked.list,🌎 节点选择\nRULE-SET,https://github.com/Blankwonder/surge-list/raw/master/cn.list,DIRECT\nRULE-SET,SYSTEM,🌎 节点选择\nRULE-SET,LAN,DIRECT\nGEOIP,CN,DIRECT\nFINAL, 🌎 节点选择,dns-failed`;
 }
 
-function genConfig(u, url, appCtx) {
+function genConfig(u, url) {
     if (!u) return '';
     const wp = '/?ed=2560', ep = encodeURIComponent(wp);
     const links = [];
-    if (appCtx.ev) {
+    if (ev) {
         const hd = 'vless';
-        links.push(...appCtx.yx.map(item => {
+        links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
-            const tps = appCtx.transConfig?.grpc ? `type=grpc&serviceName=` : (appCtx.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
+            const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
             return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Vless-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
-    if (appCtx.et) {
-        const hd = 'trojan', password = appCtx.tp || u;
-        links.push(...appCtx.yx.map(item => {
+    if (et) {
+        const hd = 'trojan', password = tp || u;
+        links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
-            const tps = appCtx.transConfig?.grpc ? `type=grpc&serviceName=` : (appCtx.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
+            const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
             return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
     return links.join('\n');
 }
 
-async function sub(req, appCtx) {
+async function sub(req) {
     const url = new URL(req.url);
     const host = req.headers.get('Host');
     const format = url.searchParams.get('format') || url.searchParams.get('target');
     const target = format;
-    const cfg = genConfig(appCtx.uid, host, appCtx);
-    if (target === 'surge') return ResponseBuilder.text(await genSurgeConfig(appCtx.uid, host, appCtx));
+    const cfg = genConfig(uid, host);
+    if (target === 'surge') return ResponseBuilder.text(await genSurgeConfig(uid, host));
     if (target === 'clash' || target === 'singbox') {
-        const backend = appCtx.dyhd;
-        const config = appCtx.dypz;
-        const rawSubUrl = `https://${host}/${appCtx.uid}`;
+        const backend = cc?.dyhd || dyhd;
+        const config = cc?.dypz || dypz;
+        const rawSubUrl = `https://${host}/${uid}`;
         const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&scv=false`;
         try {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
             if (res.ok) {
                 let content = await res.text();
-                if (target === 'clash') content = Clash订阅配置文件热补丁(content, appCtx, host);
-                if (target === 'singbox') content = await Singbox订阅配置文件热补丁(content, appCtx, host);
+                if (target === 'clash') content = Clash订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig });
+                if (target === 'singbox') content = await Singbox订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig });
                 return ResponseBuilder.text(content);
             }
         } catch(e) {}
@@ -1323,13 +1398,13 @@ async function sub(req, appCtx) {
     return ResponseBuilder.text(btoa(cfg));
 }
 
-async function getRequestProxyConfig(request, appCtx) {
+async function getRequestProxyConfig(request, config) {
     const url = new URL(request.url);
     const { pathname, searchParams } = url;
     let proxyCtx = {
-        enableType: appCtx.proxyConfig?.enabled ? appCtx.proxyConfig.type : null,
-        global: appCtx.proxyConfig?.global || false,
-        account: appCtx.proxyConfig?.account || '',
+        enableType: config.proxyConfig?.enabled ? config.proxyConfig.type : null,
+        global: config.proxyConfig?.global || false,
+        account: config.proxyConfig?.account || '',
         whitelist:[],
         parsedAddress: {}
     };
@@ -1412,11 +1487,11 @@ async function 获取SOCKS5账号(address) {
     return { username, password, hostname, port };
 }
 
-async function getCloudflareUsageAPI(env, appCtx) {
+async function getCloudflareUsageAPI(env) {
     const now = Date.now();
     if (cachedUsage && (now - lastUsageTime < 300000)) return cachedUsage;
-    if (!appCtx.cfConfig) return { success: false, pages: 0, workers: 0, total: 0 };
-    const { accountId, apiToken } = appCtx.cfConfig;
+    if (!cc?.cfConfig) return { success: false, pages: 0, workers: 0, total: 0 };
+    const { accountId, apiToken } = cc.cfConfig;
     if (!apiToken) return { success: false, pages: 0, workers: 0, total: 0 };
     const API = "https://api.cloudflare.com/client/v4";
     const sum = (a) => a?.reduce((t, i) => t + (i?.sum?.requests || 0), 0) || 0;
@@ -1488,7 +1563,76 @@ function getPoemPage() {
     return ResponseBuilder.html(html, 401);
 }
 
-function getLoginPage(url, baseUrl, appCtx, showError = false, showPasswordChanged = false) {
+export default {
+    async fetch(req, env, ctx) {
+        try {
+            await optimizeConfigLoading(env, ctx);
+            if (p === 'dylj' || p === '') p = uid || 'dylj';
+            if (env.FDIP) fdc = env.FDIP.split(',').map(s => s.trim());
+            p = env.SUB_PATH || env.subpath || p;
+            uid = env.UUID || env.uuid || env.AUTH || uid;
+            const config = await optimizeConfigLoading(env, ctx);
+            dns = config.dns || env.DNS_RESOLVER || dns;
+            const loginPath = config.klp || 'login';
+
+            const upg = req.headers.get('Upgrade');
+            const url = new URL(req.url);
+            const contentType = req.headers.get('content-type') || '';
+            const proxyCtx = await getRequestProxyConfig(req, config);
+
+            if (upg && upg.toLowerCase() === 'websocket') {
+                return await handleWSRequest(req, uid, url, proxyCtx);
+            } else if (contentType.startsWith('application/grpc')) {
+                return await handleGRPCRequest(req, uid, proxyCtx);
+            } else if (req.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${loginPath}` && url.pathname !== '/init' && url.pathname !== '/zxyx' && url.pathname !== '/test-proxy' && url.pathname !== '/api/usage') {
+                return await handleXHTTPRequest(req, uid, proxyCtx);
+            }
+
+            const pathname = url.pathname;
+            if (pathname === '/') {
+                const token = getSessionCookie(req.headers.get('Cookie'));
+                const sessionResult = await validateAndRefreshSession(env, token);
+                if (sessionResult.valid) {
+                    const host = req.headers.get('Host');
+                    const response = await getMainPageContent(host, `https://${host}`, await gP(env), await gU(env), env);
+                    if (sessionResult.refreshed) response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
+                    return response;
+                } else {
+                    const pw = await gP(env); const u = await gU(env);
+                    if (!pw || !u) return getInitPage(req.headers.get('Host'), `https://${req.headers.get('Host')}`, true);
+                    if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
+                    return getPoemPage();
+                }
+            }
+
+            if (pathname === `/${loginPath}`) return await handleLogin(req, env);
+            switch (pathname) {
+                case `/${p}`: return await sub(req);
+                case '/info': return await requireAuth(req, env, () => ResponseBuilder.json(req.cf));
+                case '/connect': return await requireAuth(req, env, handleConnectTest);
+                case '/test-dns': return await requireAuth(req, env, handleDNSTest);
+                case '/test-config': return await requireAuth(req, env, handleConfigTest);
+                case '/test-failover': return await requireAuth(req, env, handleFailoverTest);
+                case '/test-proxy': return await requireAuth(req, env, handleProxyTest);
+                case '/admin/save': return await handleAdminSave(req, env);
+                case '/admin': return await requireAuth(req, env, getAdminPage);
+                case '/init': return await handleInit(req, env);
+                case '/zxyx': return await requireAuth(req, env, zxyx);
+                case '/logout': return await handleLogout(req, env);
+                case '/api/usage': return await requireAuth(req, env, async()=> ResponseBuilder.json(await getCloudflareUsageAPI(env)));
+            }
+
+            if (pathname === `/${uid}`) return await sub(req);
+
+            if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
+            return getPoemPage();
+        } catch (err) {
+            return ErrorHandler.internalError();
+        }
+    }
+};
+
+function getLoginPage(url, baseUrl, showError = false, showPasswordChanged = false) {
     let msgHtml = '';
     if (showPasswordChanged) msgHtml = `<div class="success-msg">密码已修改，请重新登录</div>`;
     else if (showError) msgHtml = `<div class="error-msg">密码错误，请重试</div>`;
@@ -1506,14 +1650,14 @@ function getLoginPage(url, baseUrl, appCtx, showError = false, showPasswordChang
             <h1>欢迎回来</h1>
             <p>请输入密码以访问控制台</p>
             ${msgHtml}
-            <form method="post" action="/${appCtx.klp || 'login'}">
+            <form method="post" action="/${cc?.klp || 'login'}">
                 <div class="form-group">
                     <label>访问密码</label>
                     <input type="password" name="password" required autofocus placeholder="请输入登录密码">
                 </div>
                 <button type="submit" class="btn">立即登录 ➜</button>
             </form>
-            <div class="footer">© Workers Service</div>
+            <div class="footer">© 2025 Workers Service</div>
         </div>
     </div>
 </body>
@@ -1588,7 +1732,7 @@ function validateForm(e) {
     return ResponseBuilder.html(html);
 }
 
-async function handleInit(req, env, appCtx) {
+async function handleInit(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
     if (req.method !== 'POST') return getInitPage(host, base, true);
@@ -1601,13 +1745,14 @@ async function handleInit(req, env, appCtx) {
     if (!UUIDUtils.isValidUUID(uuid)) return ResponseBuilder.html('UUID无效', 400);
     await sP(env, password);
     await sU(env, uuid);
-    await saveConfigToKV(env, appCtx.yx, appCtx.fdc, uuid, null, null, null, loginPath, null, null, null, null, null, appCtx);
+    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath);
+    uid = uuid;
     const newToken = await signToken(env, Date.now() + SESSION_DURATION);
     return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
 }
 
-async function getMainPageContent(host, base, uuid, appCtx) {
-    const proxyStatus = appCtx.proxyConfig?.enabled ? `<span style="color:#22c55e;">● 已启用 (${appCtx.proxyConfig.type.toUpperCase()} | ${appCtx.proxyConfig.global ? '全局' : '分流'})</span>` : `<span style="color:#94a3b8;">● 未启用</span>`;
+async function getMainPageContent(host, base, pw, uuid, env) {
+    const proxyStatus = cc?.proxyConfig?.enabled ? `<span style="color:#22c55e;">● 已启用 (${cc.proxyConfig.type.toUpperCase()} | ${cc.proxyConfig.global ? '全局' : '分流'})</span>` : `<span style="color:#94a3b8;">● 未启用</span>`;
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1664,19 +1809,19 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
             <div class="stat-item">
                 <span class="stat-label">核心协议</span>
                 <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
-                 <span style="color:${appCtx.ev?'#22c55e':'#94a3b8'}">Vless ${appCtx.ev?'●':'○'}</span>
+                 <span style="color:${ev?'#22c55e':'#94a3b8'}">Vless ${ev?'●':'○'}</span>
                   <span style="opacity: 0.2;">|</span>
-                  <span style="color:${appCtx.et?'#22c55e':'#94a3b8'}">Trojan ${appCtx.et?'●':'○'}</span>
+                  <span style="color:${et?'#22c55e':'#94a3b8'}">Trojan ${et?'●':'○'}</span>
                 </span>
             </div>
             <div class="stat-item">
                 <span class="stat-label">传输网络增强</span>
                 <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
-                 <span style="color:${appCtx.transConfig?.grpc?'#22c55e':'#94a3b8'}">gRPC</span>
+                 <span style="color:${cc?.transConfig?.grpc?'#22c55e':'#94a3b8'}">gRPC</span>
                   <span style="opacity: 0.2;">|</span>
-                  <span style="color:${appCtx.transConfig?.xhttp?'#22c55e':'#94a3b8'}">XHTTP</span>
+                  <span style="color:${cc?.transConfig?.xhttp?'#22c55e':'#94a3b8'}">XHTTP</span>
                   <span style="opacity: 0.2;">|</span>
-                  <span style="color:${appCtx.transConfig?.ech?'#22c55e':'#94a3b8'}">ECH</span>
+                  <span style="color:${cc?.transConfig?.ech?'#22c55e':'#94a3b8'}">ECH</span>
                 </span>
             </div>
             <div class="stat-item">
@@ -1735,8 +1880,8 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
     
     function copySub(type) {
         const rawSub = '${base}/${uuid}';
-        const backend = '${appCtx.dyhd}';
-        const config = '${appCtx.dypz}';
+        const backend = '${cc?.dyhd || dyhd}';
+        const config = '${cc?.dypz || dypz}';
         
         let url = backend;
         if (!url.includes('?')) url += '?';
@@ -1775,7 +1920,7 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
     return ResponseBuilder.html(html);
 }
 
-async function handleAdminSave(req, env, appCtx) {
+async function handleAdminSave(req, env) {
     try {
         const token = getSessionCookie(req.headers.get('Cookie'));
         const sessionResult = await validateAndRefreshSession(env, token);
@@ -1827,17 +1972,22 @@ async function handleAdminSave(req, env, appCtx) {
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
         const transCfg = { grpc, xhttp, ech, ech_sni };
-        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg, appCtx);
+        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg);
+        yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns;
+        if (u) uid = u;
+        ev = protocolEv; et = protocolEt; tp = protocolTp;
+        protocolConfig = { ev, et, tp };
         const host = req.headers.get('Host');
         if (req.headers.get('Accept') === 'application/json') return ResponseBuilder.json({ success: true });
         return ResponseBuilder.redirect(`https://${host}/admin?msg=saved`);
     } catch (e) { return ResponseBuilder.text(e.message, 500); }
 }
 
-async function getAdminPage(req, env, appCtx) {
+async function getAdminPage(req, env) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
     if (!sessionResult.valid) return ErrorHandler.unauthorized();
+    if (!cc) await optimizeConfigLoading(env);
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1987,12 +2137,12 @@ async function saveConfig(e) {
                 <div class="grid-2">
                     <div class="form-group">
                         <label>优选 IP / 域名 (Web伪装 & 订阅)</label>
-                        <textarea name="cfip" placeholder="例如: 1.1.1.1:443#美国">${appCtx.yx.join('\n')}</textarea>
+                        <textarea name="cfip" placeholder="例如: 1.1.1.1:443#美国">${yx.join('\n')}</textarea>
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP:端口#备注</code><br>用于 Web 伪装和生成订阅链接。</span></div>
                     </div>
                     <div class="form-group">
                         <label>反代 IP / 域名 / TXT记录 (中转连接)</label>
-                        <textarea name="fdip" placeholder="例如: ip.sb">${appCtx.fdc.join('\n')}</textarea>
+                        <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。支持 .william 结尾的动态TXT记录。</span></div>
                     </div>
                 </div>
@@ -2004,34 +2154,34 @@ async function saveConfig(e) {
                     <div class="form-group">
                         <label>启用核心协议</label>
                         <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ev" ${appCtx.ev ? 'checked' : ''}> Vless</label>
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_et" ${appCtx.et ? 'checked' : ''}> Trojan</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ev" ${ev ? 'checked' : ''}> Vless</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_et" ${et ? 'checked' : ''}> Trojan</label>
                         </div>
                     </div>
                     <div class="form-group">
                         <label>传输模式增强</label>
                         <div style="display:flex; gap:1.5rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_grpc" ${appCtx.transConfig?.grpc ? 'checked' : ''}> gRPC</label>
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_xhttp" ${appCtx.transConfig?.xhttp ? 'checked' : ''}> XHTTP</label>
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_ech" ${appCtx.transConfig?.ech ? 'checked' : ''}> ECH</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_grpc" ${cc?.transConfig?.grpc ? 'checked' : ''}> gRPC</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_xhttp" ${cc?.transConfig?.xhttp ? 'checked' : ''}> XHTTP</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_ech" ${cc?.transConfig?.ech ? 'checked' : ''}> ECH</label>
                         </div>
                     </div>
                 </div>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Trojan 密码</label>
-                        <input type="text" name="protocol_tp" value="${appCtx.tp}" placeholder="留空则默认使用 UUID">
+                        <input type="text" name="protocol_tp" value="${tp}" placeholder="留空则默认使用 UUID">
                     </div>
                     <div class="form-group">
                         <label>ECH SNI (伪装外壳)</label>
-                        <input type="text" name="trans_ech_sni" value="${appCtx.transConfig?.ech_sni||''}" placeholder="留空自动使用当前订阅域名">
+                        <input type="text" name="trans_ech_sni" value="${cc?.transConfig?.ech_sni||''}" placeholder="留空自动使用当前订阅域名">
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>用于 ECH 配置动态提取，提升抗封锁能力。</span></div>
                     </div>
                 </div>
                 <div class="form-group">
                     <label>UUID (用户ID)</label>
                     <div style="display: flex; gap: 0.75rem;">
-                        <input type="text" id="uuid" name="uuid" value="${appCtx.uid}" required style="font-family:monospace;">
+                        <input type="text" id="uuid" name="uuid" value="${uid}" required style="font-family:monospace;">
                         <button type="button" class="btn btn-secondary" onclick="genUUID()" style="width: auto; padding: 0 1.5rem;">生成</button>
                     </div>
                 </div>
@@ -2051,20 +2201,20 @@ async function saveConfig(e) {
                 
                 <div class="form-group">
                     <label class="toggle-switch" style="display:flex; align-items:center; margin-bottom: 1rem;">
-                        <input type="checkbox" name="proxy_enabled" ${appCtx.proxyConfig?.enabled ? 'checked' : ''}> 启用代理转发功能
+                        <input type="checkbox" name="proxy_enabled" ${cc?.proxyConfig?.enabled ? 'checked' : ''}> 启用代理转发功能
                     </label>
                 </div>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>节点地址</label>
-                        <input type="text" name="proxy_account" value="${appCtx.proxyConfig?.account || ''}" placeholder="user:pass@host:port">
+                        <input type="text" name="proxy_account" value="${cc?.proxyConfig?.account || ''}" placeholder="user:pass@host:port">
                     </div>
                     <div class="form-group">
                         <label>协议类型</label>
                         <select name="proxy_type">
-                            <option value="socks5" ${appCtx.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
-                            <option value="http" ${appCtx.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option>
-                            <option value="https" ${appCtx.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option>
+                            <option value="socks5" ${cc?.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
+                            <option value="http" ${cc?.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option>
+                            <option value="https" ${cc?.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option>
                         </select>
                     </div>
                 </div>
@@ -2072,10 +2222,10 @@ async function saveConfig(e) {
                     <label>转发模式</label>
                     <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem;">
                         <label class="toggle-switch">
-                            <input type="radio" name="proxy_mode" value="global" ${appCtx.proxyConfig?.global ? 'checked' : ''}> 全局代理 (Global)
+                            <input type="radio" name="proxy_mode" value="global" ${cc?.proxyConfig?.global ? 'checked' : ''}> 全局代理 (Global)
                         </label>
                         <label class="toggle-switch">
-                            <input type="radio" name="proxy_mode" value="failover" ${!appCtx.proxyConfig?.global ? 'checked' : ''}> 故障分流 (Failover)
+                            <input type="radio" name="proxy_mode" value="failover" ${!cc?.proxyConfig?.global ? 'checked' : ''}> 故障分流 (Failover)
                         </label>
                     </div>
                     <div class="help-text" style="margin-top:0.5rem;"><i class="fas fa-lightbulb"></i><span>全局：所有流量优先走代理；分流：直连失败后尝试代理。</span></div>
@@ -2113,31 +2263,31 @@ async function saveConfig(e) {
                 <div class="grid-2">
                     <div class="form-group">
                         <label>订阅转换后端地址</label>
-                        <input type="text" name="dyhd" value="${appCtx.dyhd}" placeholder="https://xxx.xx.xx/sub?">
+                        <input type="text" name="dyhd" value="${cc?.dyhd || dyhd}" placeholder="https://xxx.xx.xx/sub?">
                     </div>
                     <div class="form-group">
                         <label>远程配置规则地址</label>
-                        <input type="text" name="dypz" value="${appCtx.dypz}" placeholder="https://...">
+                        <input type="text" name="dypz" value="${cc?.dypz || dypz}" placeholder="https://...">
                     </div>
                 </div>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Surge 专用模版</label>
-                        <input type="text" name="surgeTemplate" value="${appCtx.stp}" placeholder="https://raw.githubusercontent.com/...">
+                        <input type="text" name="surgeTemplate" value="${cc?.stp || ''}" placeholder="https://raw.githubusercontent.com/...">
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>仅影响 Surge 订阅格式。留空则使用系统内置模版。</span></div>
                     </div>
                      <div class="form-group">
                         <label>后台入口路径</label>
                         <div style="position:relative;">
                             <span style="position:absolute; left:1rem; top:0.75rem; color:var(--text-light); opacity:0.5;">/</span>
-                            <input type="text" name="login_path" value="${appCtx.klp}" style="padding-left: 2rem;">
+                            <input type="text" name="login_path" value="${cc?.klp || 'login'}" style="padding-left: 2rem;">
                         </div>
                         <div class="help-text"><i class="fas fa-lock"></i> <span>设置后只能通过 <code>域名/路径</code> 访问。</span></div>
                     </div>
                 </div>
                 <div class="form-group">
                     <label>DNS DoH 地址 (UDP 53 转发)</label>
-                    <input type="text" name="custom_dns" value="${appCtx.dns}" placeholder="例如: https://1.1.1.1/dns-query">
+                    <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
                     <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求。</span></div>
                 </div>
             </div>
@@ -2147,11 +2297,11 @@ async function saveConfig(e) {
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Account ID</label>
-                        <input type="text" name="cf_account_id" value="${appCtx.cfConfig?.accountId || ''}" placeholder="支持手动输入 & 支持通过Token自动获取">
+                        <input type="text" name="cf_account_id" value="${cc?.cfConfig?.accountId || ''}" placeholder="支持手动输入 & 支持通过Token自动获取">
                     </div>
                     <div class="form-group">
                         <label>API Token</label>
-                        <input type="password" name="cf_api_token" value="${appCtx.cfConfig?.apiToken || ''}" placeholder="填入Token并保存后，系统将尝试自动获取ID">
+                        <input type="password" name="cf_api_token" value="${cc?.cfConfig?.apiToken || ''}" placeholder="填入Token并保存后，系统将尝试自动获取ID">
                     </div>
                 </div>
                 <div class="help-text"><i class="fas fa-shield-alt"></i><span>请在 Cloudflare 用户资料页创建 Token，阅读日志权限选择 "Analytics: Read" (分析:读取)。</span></div>
@@ -2169,38 +2319,39 @@ async function saveConfig(e) {
     return ResponseBuilder.html(html);
 }
 
-async function handleConnectTest(req, env, appCtx) {
+async function handleConnectTest(req, env) {
     try {
-        const { socket, server } = await universalConnectWithFailover('www.google.com', 443, appCtx);
+        const { socket, server } = await universalConnectWithFailover();
         socket.close();
         return ResponseBuilder.json({ success: true, message: `成功连接到 ${server.original}`, server: server });
     } catch (e) { return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` }, 500); }
 }
 
-async function handleDNSTest(req, env, appCtx) {
+async function handleDNSTest(req, env) {
     try {
-        const res = await DoH查询JSON('google.com', 'A', appCtx);
-        return ResponseBuilder.json({ success: true, message: 'DNS查询成功', response: res });
+        const res = await fetch(dns, { method: 'POST', headers: { 'content-type': 'application/dns-message' }, body: new Uint8Array([0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]) });
+        const ans = await res.arrayBuffer();
+        return ResponseBuilder.json({ success: true, message: 'DNS查询成功', response: new Uint8Array(ans).slice(0, 100) });
     } catch (e) { return ResponseBuilder.json({ success: false, message: `DNS查询失败: ${e.message}` }, 500); }
 }
 
-async function handleConfigTest(req, env, appCtx) {
+async function handleConfigTest(req, env) {
     try {
         const host = req.headers.get('Host');
-        const config = genConfig(appCtx.uid, host, appCtx);
+        const config = genConfig(uid, host);
         return ResponseBuilder.json({ success: true, message: '配置生成成功', config: config });
     } catch (e) { return ResponseBuilder.json({ success: false, message: `配置生成失败: ${e.message}` }, 500); }
 }
 
-async function handleFailoverTest(req, env, appCtx) {
+async function handleFailoverTest(req, env) {
     try {
         const testResults = [];
-        const servers = [...appCtx.fdc, 'www.visa.com.sg'];
+        const servers = [...fdc, 'www.visa.com.sg'];
         for (let i = 0; i < servers.length; i++) {
             const s = servers[i];
             try {
                 const { hostname, port } = IPParser.parseConnectionAddress(s);
-                const socket = await connect({ hostname: hostname, port: port, connectTimeout: appCtx.globalTimeout, noDelay: true });
+                const socket = await connect({ hostname: hostname, port: port, connectTimeout: globalTimeout, noDelay: true });
                 socket.close();
                 testResults.push({ server: s, status: 'success', message: `连接成功` });
             } catch (e) { testResults.push({ server: s, status: 'failed', message: `连接失败: ${e.message}` }); }
@@ -2209,7 +2360,7 @@ async function handleFailoverTest(req, env, appCtx) {
     } catch (e) { return ResponseBuilder.json({ success: false, message: `故障转移测试失败: ${e.message}` }, 500); }
 }
 
-async function handleProxyTest(req, env, appCtx) {
+async function handleProxyTest(req, env) {
     try {
         const { type, account } = await req.json();
         if (!account) throw new Error("节点地址为空");
@@ -2232,7 +2383,7 @@ async function handleProxyTest(req, env, appCtx) {
     } catch (e) { return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` }); }
 }
 
-async function zxyx(request, env, appCtx, txt = 'ADD.txt') {
+async function zxyx(request, env, txt = 'ADD.txt') {
     const countryCodeToName = {
         'US': '美国', 'SG': '新加坡', 'DE': '德国', 'JP': '日本', 'KR': '韩国',
         'HK': '香港', 'TW': '台湾', 'GB': '英国', 'FR': '法国', 'IN': '印度',
@@ -2246,6 +2397,7 @@ async function zxyx(request, env, appCtx, txt = 'ADD.txt') {
         'CY': '塞浦路斯', 'MT': '马耳他', 'IS': '冰岛', 'CN': '中国'
     };
     function getCountryName(countryCode) { return countryCodeToName[countryCode] || countryCode; }
+    if (!env.SJ) { env.SJ = env.SJ || env.sj; }
     const country = request.cf?.country || 'CN';
     function isValidIP(ip) {
         const ipRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
@@ -2330,45 +2482,44 @@ async function zxyx(request, env, appCtx, txt = 'ADD.txt') {
         } catch (error) { return []; }
     }
     const url = new URL(request.url);
-    const kv = env.SJ || env.sj;
     if (request.method === "POST") {
-        if (!kv) return new Response("未绑定KV空间", { status: 400 });
+        if (!env.SJ) return new Response("未绑定KV空间", { status: 400 });
         try {
             const contentType = request.headers.get('Content-Type');
             if (contentType && contentType.includes('application/json')) {
                 const data = await request.json();
                 const action = url.searchParams.get('action') || 'save';
                 if (!data.ips || !Array.isArray(data.ips)) return new Response(JSON.stringify({ error: 'Invalid IP list' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
-                let currentConfig = await kv.get(K_SETTINGS, 'json');
-                if (!currentConfig) currentConfig = { yx: appCtx.yx, fdc: appCtx.fdc, uid: appCtx.uid, dyhd: appCtx.dyhd, dypz: appCtx.dypz, dns: appCtx.dns, protocolConfig: { ev: appCtx.ev, et: appCtx.et, tp: appCtx.tp }, cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }, klp: 'login' };
+                let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
+                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }, klp: 'login' };
                 if (action === 'replace-cf' || action === 'append-cf') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
                         currentConfig.yx = uniqueIPList(data.ips);
-                        await kv.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        GLOBAL_CONFIG_CACHE = null;
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        yx = currentConfig.yx; cc = { ...currentConfig, yx: currentConfig.yx, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功替换优选IP列表，保存 ${currentConfig.yx.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     } else {
                         const newIPs = uniqueIPList([...currentConfig.yx, ...data.ips]);
                         if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '追加后内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                         currentConfig.yx = newIPs;
-                        await kv.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        GLOBAL_CONFIG_CACHE = null;
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        yx = newIPs; cc = { ...currentConfig, yx: newIPs, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功追加优选IP列表，新增 ${data.ips.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     }
                 } else if (action === 'replace-fd' || action === 'append-fd') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-fd') {
                         currentConfig.fdc = uniqueIPList(data.ips);
-                        await kv.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        GLOBAL_CONFIG_CACHE = null;
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        fdc = currentConfig.fdc; cc = { ...currentConfig, fdc: currentConfig.fdc, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功替换反代IP列表，保存 ${currentConfig.fdc.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     } else {
                         const newIPs = uniqueIPList([...currentConfig.fdc, ...data.ips]);
                         if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '追加后内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                         currentConfig.fdc = newIPs;
-                        await kv.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        GLOBAL_CONFIG_CACHE = null;
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        fdc = newIPs; cc = { ...currentConfig, fdc: newIPs, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功追加反代IP列表，新增 ${data.ips.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     }
                 } else {
@@ -2376,7 +2527,7 @@ async function zxyx(request, env, appCtx, txt = 'ADD.txt') {
                 }
             } else {
                 const content = await request.text();
-                await kv.put(txt, content);
+                await env.SJ.put(txt, content);
                 return new Response("保存成功");
             }
         } catch (error) { return new Response(JSON.stringify({ error: '操作失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } }); }
@@ -2388,80 +2539,12 @@ async function zxyx(request, env, appCtx, txt = 'ADD.txt') {
         const ips = await GetCFIPs(ipSource, port, count);
         return new Response(JSON.stringify({ ips }), { headers: { 'Content-Type': 'application/json' } });
     }
+    let content = '';
+    let hasKV = !!env.SJ;
+    if (hasKV) { try { content = await env.SJ.get(txt) || ''; } catch (error) { content = '读取数据时发生错误: ' + error.message; } }
     const isChina = country === 'CN';
     const countryDisplayClass = isChina ? '' : 'proxy-warning';
     const countryDisplayText = isChina ? `${country}` : `${country} (可能需关闭代理)`;
-    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>在线优选工具</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"><style>${getCommonCSS()} body { justify-content: flex-start; padding: 2rem 1rem 8rem 1rem; } .container { max-width: 1000px; width: 100%; margin: 0 auto; } .card { padding: 1.5rem; margin-bottom: 1.5rem; } h3 { margin-top: 0; margin-bottom: 1.25rem; font-size: 1.25rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 0.75rem; } .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; } .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; } @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } } .nav-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; } .nav-brand { font-size: 1.5rem; font-weight: 700; background: linear-gradient(to right, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; } .stats-val { font-size: 1.25rem; font-weight: 600; color: var(--primary); } .stats-label { font-size: 0.85rem; color: var(--text-light); } .proxy-warning { color: #ef4444; font-weight: bold; } .ip-list { background: rgba(0,0,0,0.03); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border); max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; } .ip-item { margin: 4px 0; padding: 4px 8px; border-radius: 4px; display: flex; justify-content: space-between; } .ip-item:hover { background: rgba(255,255,255,0.05); } .good-latency { color: #22c55e; } .medium-latency { color: #f59e0b; } .bad-latency { color: #ef4444; } .progress-container { background: rgba(0,0,0,0.1); border-radius: 2rem; height: 10px; overflow: hidden; margin: 1rem 0; display: flex; } .progress-bar-success { background: #22c55e; height: 100%; width: 0%; transition: width 0.3s ease; } .progress-bar-fail { background: #ef4444; height: 100%; width: 0%; transition: width 0.3s ease; } .btn-group { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; } label { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; display: block; } select, input[type="number"] { width: 100%; } .control-section { padding-bottom: 1.5rem; border-bottom: 1px dashed var(--border); margin-bottom: 1.5rem; } .control-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }</style><script>function showToast(msg, type = 'success') { let container = document.querySelector('.toast-container'); if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); } const toast = document.createElement('div'); toast.className = 'toast ' + type; const icon = type === 'success' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>'; toast.innerHTML = icon + '<span>' + msg + '</span>'; container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show')); setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000); }</script></head><body><div class="container"><div class="nav-header"><div class="nav-brand">在线优选 IP</div><div style="display:flex; gap:0.5rem;"><a href="/admin" class="btn btn-secondary" style="width:auto; padding: 0.5rem 1rem;"><i class="fas fa-cog"></i> 配置</a><a href="/" class="btn btn-secondary" style="width:auto; padding: 0.5rem 1rem;"><i class="fas fa-arrow-left"></i> 首页</a></div></div>${!isChina ? `<div class="card" style="padding: 1rem; margin-bottom: 1.5rem;"><div style="display:flex; gap:1rem; align-items:center;"><i class="fas fa-exclamation-triangle" style="color:#ef4444; font-size:1.5rem;"></i><div><h4 style="margin:0; color:#ef4444;">代理环境警告</h4><p style="margin:0.25rem 0 0 0; font-size:0.9rem;">检测到您可能处于代理或 VPN 环境中（${country}），测速结果可能不准确。建议关闭代理后刷新页面。</p></div></div></div>` : ''}<div class="card" id="status-card"><h3><i class="fas fa-chart-bar" style="color:var(--primary)"></i> 状态概览</h3><div class="grid-3"><div style="text-align:center;"><div class="stats-label">您的位置</div><div class="stats-val ${countryDisplayClass}">${countryDisplayText}</div></div><div style="text-align:center;"><div class="stats-label">加载 IP 数</div><div class="stats-val" id="ip-count">0</div></div><div style="text-align:center;"><div class="stats-label">有效结果</div><div class="stats-val" id="result-count-val" style="color:#22c55e;">0</div></div></div><div style="margin-top: 1.5rem;"><div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-light); margin-bottom: 0.5rem;"><span id="progress-text">准备就绪</span><span id="progress-percent">0%</span></div><div class="progress-container"><div class="progress-bar-success" id="progress-bar-success"></div><div class="progress-bar-fail" id="progress-bar-fail"></div></div></div></div><div class="card"><h3><i class="fas fa-sliders-h" style="color:#f59e0b"></i> 测速配置</h3><div class="control-section"><div class="grid-3"><div class="form-group"><label>IP 来源库</label><select id="ip-source-select"><option value="official">Cloudflare 官方</option><option value="as13335">AS13335 (Cloudflare)</option><option value="as209242">AS209242 (ArvanCloud)</option><option value="as24429">AS24429 (Alibaba)</option><option value="as199524">AS199524 (G-Core)</option><option value="local">本地文件上传</option><option value="custom">远程 API</option></select><div id="custom-api-input-group" style="display:none; margin-top:0.75rem;"><input type="text" id="custom-api-url" placeholder="请输入 API 地址 (如: https://example.com/ips.txt)" style="font-size:16px;"><div style="font-size:0.75rem; color:var(--text-light); margin-top:0.25rem;">支持格式: 纯文本 IP/CIDR (换行分隔)</div></div></div><div class="form-group"><label>测速端口</label><select id="port-select"><option value="443">443 (HTTPS)</option><option value="2053">2053 (HTTPS)</option><option value="2083">2083 (HTTPS)</option><option value="2087">2087 (HTTPS)</option><option value="2096">2096 (HTTPS)</option></select></div><div class="form-group"><label>本地文件</label><div style="display:flex; gap:0.5rem;"><input type="file" id="local-file-input" accept=".txt,.json,.csv,.conf,.list" style="display:none;" onchange="handleFileUpload(this.files)"><button class="btn btn-secondary" onclick="document.getElementById('local-file-input').click()" style="width:100%; padding: 0.75rem;"><i class="fas fa-upload"></i> 选择文件</button></div></div></div><div class="form-group" style="margin-top:1rem;"><label>测速证书外壳 (SNI DNS 域名)</label><div style="display:flex; gap:0.5rem;"><input type="text" id="custom-sni-domain" placeholder="留空则自动获取官方最新高可用域名..." style="font-family:monospace;"><button class="btn btn-secondary" onclick="checkSNI()" style="width:auto; white-space:nowrap; padding:0 1rem;"><i class="fas fa-satellite-dish"></i> 自动获取</button></div><div style="font-size:0.75rem; color:var(--text-light); margin-top:0.4rem;"><i class="fas fa-info-circle"></i> 此域名仅作为“动态电话本”，完全安全且不参与数据传输。强烈建议点击自动获取。</div></div><div class="grid-2" style="margin-top:1rem;"><div class="form-group"><label>测试数量</label><input type="number" id="count-input" value="50" min="1" max="500"></div><div class="form-group"><label>并发线程</label><input type="number" id="concurrency-input" value="6" min="1" max="20"></div></div><div style="margin-top:1rem; display:none;" id="saved-files-wrapper"><label>已保存的列表</label><div style="display:flex; gap:0.5rem;"><select id="saved-files-select" onchange="handleSavedFileSelect(this)"></select><button class="btn btn-secondary" style="width:auto; padding:0 0.75rem;" onclick="deleteSavedFile()" id="delete-btn" disabled><i class="fas fa-trash"></i></button></div></div></div></div><div class="card" id="result-card"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;"><h3><i class="fas fa-list-ul" style="color:#8b5cf6"></i> 测速结果</h3><span id="ip-display-info" style="font-size:0.85rem; color:var(--text-light);"></span></div><div id="region-filter" style="margin-bottom:1rem; display:none; gap:0.5rem; flex-wrap:wrap;"></div><div class="ip-list" id="ip-list"><div style="text-align:center; color:var(--text-light); padding:2rem;">请配置参数并点击"开始测速"</div></div><div style="margin-top:1rem; display:none; text-align:center;" id="show-more-section"><button class="btn btn-secondary" style="width:auto;" onclick="toggleShowMore()" id="show-more-btn">显示更多</button></div><div class="btn-group"><button class="btn" style="flex:1; background:linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);" id="replace-cf-btn" onclick="replaceCFIPs()" disabled><i class="fas fa-exchange-alt"></i> 替换优选 IP</button><button class="btn" style="flex:1; background:linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);" id="append-cf-btn" onclick="appendCFIPs()" disabled><i class="fas fa-plus"></i> 追加优选 IP</button><button class="btn" style="flex:1; background:linear-gradient(135deg, #d946ef 0%, #c026d3 100%);" id="replace-fd-btn" onclick="replaceFDIPs()" disabled><i class="fas fa-sync"></i> 替换反代 IP</button><button class="btn" style="flex:1; background:linear-gradient(135deg, #ec4899 0%, #db2777 100%);" id="append-fd-btn" onclick="appendFDIPs()" disabled><i class="fas fa-folder-plus"></i> 追加反代 IP</button></div></div></div><div style="position: fixed; bottom: 2rem; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; z-index: 100;"><button class="btn" id="test-btn" onclick="startTest()" style="pointer-events: auto; box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4); width: auto; padding: 1rem 3rem; border-radius: 2rem;"><i class="fas fa-play"></i> 开始测速</button></div><script>const LATENCY_CALIBRATION_FACTOR = 0.25; function calibrateLatency(rawLatency) { return Math.max(1, Math.round(rawLatency * LATENCY_CALIBRATION_FACTOR)); } const LocalStorageKeys = { SAVED_FILES: 'cf-ip-saved-files', FILE_PREFIX: 'cf-ip-file-' }; let originalIPs =[], testResults = [], displayedResults =[], showingAll = false, currentDisplayType = 'loading', cloudflareLocations = {}; const StorageKeys = { PORT: 'cf-ip-test-port', IP_SOURCE: 'cf-ip-test-source', COUNT: 'cf-ip-test-count', CONCURRENCY: 'cf-ip-test-concurrency', CUSTOM_SNI: 'cf-ip-custom-sni' }; async function getActiveSNIDomain() { const userSni = document.getElementById('custom-sni-domain').value.trim(); if (userSni) return userSni; try { const response = await fetch('https://cloudflare-dns.com/dns-query?name=nip.090227.xyz&type=TXT', { headers: { 'Accept': 'application/dns-json' } }); if (response.ok) { const data = await response.json(); if (data.Status === 0 && data.Answer && data.Answer.length > 0) { return data.Answer[0].data.replace(/^"(.*)"$/, '$1'); } } return 'nip.lfree.org'; } catch (error) { return 'ip.090227.xyz'; } } function ipToHex(ip) { return ip.split('.').map(part => { const hex = parseInt(part, 10).toString(16); return hex.length === 1 ? '0' + hex : hex; }).join(''); } window.checkSNI = async function() { const btn = event.currentTarget; const originalHtml = btn.innerHTML; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; const activeSni = await getActiveSNIDomain(); const inputSni = document.getElementById('custom-sni-domain'); inputSni.value = activeSni; localStorage.setItem(StorageKeys.CUSTOM_SNI, activeSni); btn.innerHTML = originalHtml; showToast('已获取最新动态解析域: ' + activeSni, 'success'); }; function initializeLocalStorage(){if(!localStorage.getItem(LocalStorageKeys.SAVED_FILES)){localStorage.setItem(LocalStorageKeys.SAVED_FILES,JSON.stringify([]))}updateSavedFilesSelect()} function updateSavedFilesSelect(){const savedFilesSelect=document.getElementById('saved-files-select');const savedFiles=JSON.parse(localStorage.getItem(LocalStorageKeys.SAVED_FILES)||'[]');const wrapper=document.getElementById('saved-files-wrapper');if(savedFiles.length>0){wrapper.style.display='block'}else{wrapper.style.display='none'}savedFilesSelect.innerHTML='<option value="">-- 选择已保存文件 --</option>';savedFiles.forEach(file=>{const option=document.createElement('option');option.value=file.id;option.textContent=\`\${file.name} (\${file.ipCount}IP)\`;savedFilesSelect.appendChild(option)});updateFileManagementButtons()} function updateFileManagementButtons(){const savedFilesSelect=document.getElementById('saved-files-select');const deleteBtn=document.getElementById('delete-btn');const hasSelection=savedFilesSelect.value!=='';deleteBtn.disabled=!hasSelection} function handleSavedFileSelect(select){updateFileManagementButtons();if(select.value){document.getElementById('ip-source-select').value='local';loadSavedFile(select.value)}} function parseCIDRFormat(cidrString){try{const[network,prefixLength]=cidrString.split('/');const prefix=parseInt(prefixLength);if(isNaN(prefix)||prefix<8||prefix>32){return null}const ipRegex=/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/;if(!ipRegex.test(network)){return null}const octets=network.split('.').map(Number);for(const octet of octets){if(octet<0||octet>255){return null}}return{network:network,prefixLength:prefix,type:'cidr'}}catch(error){return null}} function generateIPsFromCIDR(cidr,maxIPs=100){try{const[network,prefixLength]=cidr.split('/');const prefix=parseInt(prefixLength);const ipToInt=(ip)=>{return ip.split('.').reduce((acc,octet)=>(acc<<8)+parseInt(octet),0)>>>0};const intToIP=(int)=>{return[(int>>>24)&255,(int>>>16)&255,(int>>>8)&255,int&255].join('.')};const networkInt=ipToInt(network);const hostBits=32-prefix;const numHosts=Math.pow(2,hostBits);if(numHosts<=2){return[]}const maxHosts=numHosts-2;const actualCount=Math.min(maxIPs,maxHosts);const ips=new Set();if(maxHosts<=0){return[]}let attempts=0;const maxAttempts=actualCount*10;while(ips.size<actualCount&&attempts<maxAttempts){const randomOffset=Math.floor(Math.random()*maxHosts)+1;const randomIP=intToIP(networkInt+randomOffset);ips.add(randomIP);attempts++}return Array.from(ips)}catch(error){return[]}} function handleFileUpload(files){if(files.length===0)return;const file=files[0];const reader=new FileReader();reader.onload=function(e){const content=e.target.result;const fileName=file.name.replace(/\\.[^/.]+$/,"");const targetPort=document.getElementById('port-select').value;const parsedIPs=parseFileContent(content,targetPort);if(parsedIPs.length===0){showToast('未能在文件中找到有效的IP地址','error');return}saveFileToLocalStorage(fileName,parsedIPs,content);document.getElementById('ip-source-select').value='local';loadIPsFromArray(parsedIPs);showToast(\`成功加载 \${parsedIPs.length} 个IP\`,'success')};reader.onerror=function(){showToast('文件读取失败','error')};reader.readAsText(file)} function parseFileContent(content,targetPort){const lines=content.split('\\n');const ips=new Set();const userCount=parseInt(document.getElementById('count-input').value)||50;lines.forEach(line=>{line=line.trim();if(!line||line.startsWith('#')||line.startsWith('//'))return;const cidrInfo=parseCIDRFormat(line);if(cidrInfo){const maxIPsPerCIDR=Math.ceil(userCount/lines.length);const ipsFromCIDR=generateIPsFromCIDR(line,maxIPsPerCIDR);ipsFromCIDR.forEach(ip=>{const formattedIP=\`\${ip}:\${targetPort}\`;ips.add(formattedIP)});return}const parsedIP=parseIPLine(line,targetPort);if(parsedIP){if(Array.isArray(parsedIP)){parsedIP.forEach(ip=>ips.add(ip))}else{ips.add(parsedIP)}}});const ipArray=Array.from(ips);return userCount<ipArray.length?ipArray.slice(0,userCount):ipArray} function parseIPLine(line,targetPort){try{let ip='';let port=targetPort;let comment='';let mainPart=line;if(line.includes('#')){const parts=line.split('#');mainPart=parts[0].trim();comment=parts.slice(1).join('#').trim()}if(mainPart.includes(':')){const parts=mainPart.split(':');if(parts.length===2){ip=parts[0].trim();port=parts[1].trim()}else{return null}}else{ip=mainPart.trim()}if(!isValidIP(ip)){return null}const portNum=parseInt(port);if(isNaN(portNum)||portNum<1||portNum>65535){return null}if(comment){return\`\${ip}:\${port}#\${comment}\`}else{return\`\${ip}:\${port}\`}}catch(error){return null}} function isValidIP(ip){const ipv4Regex=/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/;const match=ip.match(ipv4Regex);if(match){for(let i=1;i<=4;i++){const num=parseInt(match[i]);if(num<0||num>255){return false}}return true}return false} function saveFileToLocalStorage(fileName,ips,originalContent){const fileId='file_'+Date.now();const fileData={id:fileId,name:fileName,ips:ips,content:originalContent,ipCount:ips.length,timestamp:Date.now()};localStorage.setItem(LocalStorageKeys.FILE_PREFIX+fileId,JSON.stringify(fileData));const savedFiles=JSON.parse(localStorage.getItem(LocalStorageKeys.SAVED_FILES)||'[]');savedFiles.push({id:fileId,name:fileName,ipCount:ips.length,timestamp:Date.now()});localStorage.setItem(LocalStorageKeys.SAVED_FILES,JSON.stringify(savedFiles));updateSavedFilesSelect();document.getElementById('saved-files-select').value=fileId;updateFileManagementButtons()} function loadSavedFile(fileId){if(!fileId)return;const fileData=localStorage.getItem(LocalStorageKeys.FILE_PREFIX+fileId);if(!fileData){showToast('文件不存在','error');return}const parsedData=JSON.parse(fileData);const currentPort=document.getElementById('port-select').value;const updatedIPs=parsedData.ips.map(ip=>updateIPPort(ip,currentPort));document.getElementById('ip-source-select').value='local';loadIPsFromArray(updatedIPs);showToast(\`已加载 "\${parsedData.name}"\`,'success')} function updateIPPort(ipString,newPort){try{let ip='';let port=newPort;let comment='';if(ipString.includes('#')){const parts=ipString.split('#');const mainPart=parts[0].trim();comment=parts[1].trim();if(mainPart.includes(':')){const ipPortParts=mainPart.split(':');if(ipPortParts.length===2){ip=ipPortParts[0].trim()}else{return ipString}}else{ip=mainPart}}else{if(ipString.includes(':')){const ipPortParts=ipString.split(':');if(ipPortParts.length===2){ip=ipPortParts[0].trim()}else{return ipString}}else{ip=ipString}}if(comment){return\`\${ip}:\${port}#\${comment}\`}else{return\`\${ip}:\${port}\`}}catch(error){return ipString}} function loadIPsFromArray(ips){originalIPs=ips;testResults=[];displayedResults=[];showingAll=false;currentDisplayType='loading';document.getElementById('ip-count').textContent=ips.length;displayLoadedIPs();document.getElementById('test-btn').disabled=false;updateButtonStates()} function deleteSavedFile(){const savedFilesSelect=document.getElementById('saved-files-select');const fileId=savedFilesSelect.value;if(!fileId)return;if(!confirm('确定删除？'))return;const savedFiles=JSON.parse(localStorage.getItem(LocalStorageKeys.SAVED_FILES)||'[]');const filteredFiles=savedFiles.filter(file=>file.id!==fileId);localStorage.setItem(LocalStorageKeys.SAVED_FILES,JSON.stringify(filteredFiles));localStorage.removeItem(LocalStorageKeys.FILE_PREFIX+fileId);updateSavedFilesSelect();updateFileManagementButtons();showToast('文件已删除','success')} async function loadCloudflareLocations(){try{const response=await fetch(atob('aHR0cHM6Ly9zcGVlZC5jbG91ZGZsYXJlLmNvbS9sb2NhdGlvbnM='));if(response.ok){const locations=await response.json();cloudflareLocations={};locations.forEach(location=>{cloudflareLocations[location.iata]=location})}}catch(error){}} function initializeSettings(){const portSelect=document.getElementById('port-select');const ipSourceSelect=document.getElementById('ip-source-select');const countInput=document.getElementById('count-input');const concurrencyInput=document.getElementById('concurrency-input');const customApiGroup = document.getElementById('custom-api-input-group');const customApiInput = document.getElementById('custom-api-url');const customSniInput = document.getElementById('custom-sni-domain');const savedPort=localStorage.getItem(StorageKeys.PORT);const savedIPSource=localStorage.getItem(StorageKeys.IP_SOURCE);const savedCount=localStorage.getItem(StorageKeys.COUNT);const savedConcurrency=localStorage.getItem(StorageKeys.CONCURRENCY);const savedCustomUrl = localStorage.getItem('cf-ip-custom-url');const savedSni = localStorage.getItem(StorageKeys.CUSTOM_SNI);if(savedPort)portSelect.value=savedPort;if(savedIPSource) {ipSourceSelect.value=savedIPSource;if(savedIPSource === 'custom') customApiGroup.style.display = 'block';}if(savedCount)countInput.value=savedCount;if(savedConcurrency)concurrencyInput.value=savedConcurrency;if(savedCustomUrl) customApiInput.value = savedCustomUrl;if(savedSni) customSniInput.value = savedSni;portSelect.addEventListener('change',function(){localStorage.setItem(StorageKeys.PORT,this.value);if(originalIPs.length>0){const newPort=this.value;const updatedIPs=originalIPs.map(ip=>updateIPPort(ip,newPort));loadIPsFromArray(updatedIPs)}});ipSourceSelect.addEventListener('change',function(){localStorage.setItem(StorageKeys.IP_SOURCE,this.value);if(this.value === 'custom') {customApiGroup.style.display = 'block';customApiInput.focus();} else {customApiGroup.style.display = 'none';}});customApiInput.addEventListener('input', function() { localStorage.setItem('cf-ip-custom-url', this.value.trim()); });customSniInput.addEventListener('input', function() { localStorage.setItem(StorageKeys.CUSTOM_SNI, this.value.trim()); });countInput.addEventListener('change',function(){localStorage.setItem(StorageKeys.COUNT,this.value)});concurrencyInput.addEventListener('change',function(){localStorage.setItem(StorageKeys.CONCURRENCY,this.value)})} document.addEventListener('DOMContentLoaded',async function(){await loadCloudflareLocations();initializeSettings();initializeLocalStorage()}); function shuffleArray(array){const newArray=[...array];for(let i=newArray.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[newArray[i],newArray[j]]=[newArray[j],newArray[i]]}return newArray} function toggleShowMore(){if(currentDisplayType==='testing'){return}showingAll=!showingAll;if(currentDisplayType==='loading'){displayLoadedIPs()}else if(currentDisplayType==='results'){displayResults()}} function displayLoadedIPs(){const ipList=document.getElementById('ip-list');const showMoreSection=document.getElementById('show-more-section');const showMoreBtn=document.getElementById('show-more-btn');const ipDisplayInfo=document.getElementById('ip-display-info');if(originalIPs.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">加载IP列表失败</div>';showMoreSection.style.display='none';ipDisplayInfo.textContent='';return}const displayCount=showingAll?originalIPs.length:Math.min(originalIPs.length,16);const displayIPs=originalIPs.slice(0,displayCount);if(originalIPs.length<=16){ipDisplayInfo.textContent=\`共 \${originalIPs.length} 个IP\`;showMoreSection.style.display='none'}else{ipDisplayInfo.textContent=\`显示 \${displayCount} / \${originalIPs.length} 个IP\`;if(currentDisplayType!=='testing'){showMoreSection.style.display='block';showMoreBtn.textContent=showingAll?'显示更少':'显示更多';showMoreBtn.disabled=false}else{showMoreSection.style.display='none'}}ipList.innerHTML=displayIPs.map(ip=>\`<div class="ip-item"><span>\${ip}</span></div>\`).join('')} function updateButtonStates(){const replaceCfBtn=document.getElementById('replace-cf-btn');const appendCfBtn=document.getElementById('append-cf-btn');const replaceFdBtn=document.getElementById('replace-fd-btn');const appendFdBtn=document.getElementById('append-fd-btn');const hasResults=displayedResults.length>0;replaceCfBtn.disabled=!hasResults;appendCfBtn.disabled=!hasResults;replaceFdBtn.disabled=!hasResults;appendFdBtn.disabled=!hasResults} function disableAllButtons(){document.querySelectorAll('button, select, input').forEach(el=>el.disabled=true)} function enableButtons(){document.querySelectorAll('button, select, input').forEach(el=>{if(el.id!=='delete-btn')el.disabled=false});updateButtonStates();updateFileManagementButtons()} function formatIPForSave(result){const port=document.getElementById('port-select').value;let ip=result.ip;let countryCode=result.locationCode||'XX';let countryName=getCountryName(countryCode);return\`\${ip}:\${port}#\${countryName}|\${countryCode}\`} function formatIPForFD(result){const port=document.getElementById('port-select').value;let countryCode=result.locationCode||'XX';let countryName=getCountryName(countryCode);return\`\${result.ip}:\${port}#\${countryName}\`} function getCountryName(countryCode){const countryMap={'US':'美国','SG':'新加坡','DE':'德国','JP':'日本','KR':'韩国','HK':'香港','TW':'台湾','GB':'英国','FR':'法国','IN':'印度','BR':'巴西','CA':'加拿大','AU':'澳大利亚','NL':'荷兰','CH':'瑞士','SE':'瑞典','IT':'意大利','ES':'西班牙','RU':'俄罗斯','ZA':'南非','MX':'墨西哥','MY':'马来西亚','TH':'泰国','ID':'印度尼西亚','VN':'越南','PH':'菲律宾','TR':'土耳其','SA':'沙特阿拉伯','AE':'阿联酋','EG':'埃及','NG':'尼日利亚','IL':'以色列','PL':'波兰','UA':'乌克兰','CZ':'捷克','RO':'罗马尼亚','GR':'希腊','PT':'葡萄牙','DK':'丹麦','FI':'芬兰','NO':'挪威','AT':'奥地利','BE':'比利时','IE':'爱尔兰','LU':'卢森堡','CY':'塞浦路斯','MT':'马耳他','IS':'冰岛','CN':'中国'};return countryMap[countryCode]||countryCode} async function saveIPs(action,formatFunction,buttonId,successMessage){let ipsToSave=[];if(document.getElementById('region-filter')&&document.getElementById('region-filter').style.display!=='none'&&document.querySelector('.region-btn.active').getAttribute('data-region')!=='all'){ipsToSave=displayedResults}else{ipsToSave=testResults}if(ipsToSave.length===0){showToast('无有效IP可保存','error');return}const button=document.getElementById(buttonId);const originalText=button.innerHTML;disableAllButtons();button.textContent='保存中...';try{const saveCount=Math.min(ipsToSave.length,6);const ips=ipsToSave.slice(0,saveCount).map(result=>formatFunction(result));const response=await fetch(\`?action=\${action}\`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ips})});const data=await response.json();if(data.success){showToast(successMessage+' (前'+saveCount+'个)','success')}else{showToast(data.error||'保存失败','error')}}catch(error){showToast('保存失败','error')}finally{button.innerHTML=originalText;enableButtons()}} async function replaceCFIPs(){await saveIPs('replace-cf',formatIPForSave,'replace-cf-btn','已替换优选 IP')} async function appendCFIPs(){await saveIPs('append-cf',formatIPForSave,'append-cf-btn','已追加优选 IP')} async function replaceFDIPs(){await saveIPs('replace-fd',formatIPForFD,'replace-fd-btn','已替换反代 IP')} async function appendFDIPs(){await saveIPs('append-fd',formatIPForFD,'append-fd-btn','已追加反代 IP')} function isRetriableError(error){if(!error)return false;const errorMessage=error.message||error.toString();const retryablePatterns=['timeout','abort','network','fetch','failed','load failed','connection','socket','reset'];const nonRetryablePatterns=['HTTP 4','HTTP 5','404','500','502','503','certificate','SSL','TLS','CORS','blocked'];const isRetryable=retryablePatterns.some(pattern=>errorMessage.toLowerCase().includes(pattern.toLowerCase()));const isNonRetryable=nonRetryablePatterns.some(pattern=>errorMessage.toLowerCase().includes(pattern.toLowerCase()));return isRetryable&&!isNonRetryable} async function smartRetry(operation,maxAttempts=3,baseDelay=200,timeout=5000){let lastError;for(let attempt=1;attempt<=maxAttempts;attempt++){const controller=new AbortController();const timeoutId=setTimeout(()=>controller.abort(),timeout);try{const result=await Promise.race([operation(controller.signal),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Operation timeout')),timeout))]);clearTimeout(timeoutId);if(result&&result.success!==false){return result}if(result&&result.error){if(result.error.includes('HTTP 4')||result.error.includes('HTTP 5')){return result}}lastError=result?result.error:new Error('Operation failed')}catch(error){clearTimeout(timeoutId);lastError=error;if(!error.message.includes('network')&&!error.message.includes('timeout')&&!error.message.includes('fetch')){throw error}}if(attempt<maxAttempts){const delay=baseDelay*Math.pow(2,attempt-1)+Math.random()*100;await new Promise(resolve=>setTimeout(resolve,delay))}}throw lastError} async function singleLatencyTest(ip, port, timeout, abortSignal) { const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), timeout); if (abortSignal) { abortSignal.addEventListener('abort', () => controller.abort()); } const startTime = Date.now(); try { const activeSni = document.getElementById('custom-sni-domain').value.trim(); const hexIp = ipToHex(ip); const targetUrl = \`https://\${hexIp}.\${activeSni}:\${port}/cdn-cgi/trace\`; const response = await fetch(targetUrl, { signal: controller.signal, mode: 'cors' }); clearTimeout(timeoutId); if (response.status === 200) { const latency = Date.now() - startTime; const responseText = await response.text(); const traceData = parseTraceResponse(responseText); if (traceData && traceData.ip && traceData.colo) { const responseIP = traceData.ip; let ipType = (responseIP.includes(':') || responseIP === ip) ? 'proxy' : 'official'; return { ip: ip, port: port, latency: latency, colo: traceData.colo, type: ipType, responseIP: responseIP }; } } return null; } catch (error) { clearTimeout(timeoutId); return null; } } function parseIPFormat(ipString,defaultPort){try{let host,port,comment;let mainPart=ipString;if(ipString.includes('#')){const parts=ipString.split('#');mainPart=parts[0];comment=parts[1]}if(mainPart.includes(':')){const parts=mainPart.split(':');host=parts[0];port=parseInt(parts[1])}else{host=mainPart;port=parseInt(defaultPort)}if(!host||!port||isNaN(port)){return null}return{host:host.trim(),port:port,comment:comment?comment.trim():null}}catch(error){return null}} function parseTraceResponse(responseText){try{const lines=responseText.split('\\n');const data={};for(const line of lines){const trimmedLine=line.trim();if(trimmedLine&&trimmedLine.includes('=')){const[key,value]=trimmedLine.split('=',2);data[key]=value}}return data}catch(error){return null}} async function testIPsWithConcurrency(ips,port,maxConcurrency=6){const results=[];const totalIPs=ips.length;let completedTests=0;let activeWorkers=0;let currentIndex=0;let successCount=0;let failCount=0;const validCountLabel=document.getElementById('result-count-val');const progressBarSuccess=document.getElementById('progress-bar-success');const progressBarFail=document.getElementById('progress-bar-fail');const progressText=document.getElementById('progress-text');const progressPercent=document.getElementById('progress-percent');const workers=Array(Math.min(maxConcurrency,ips.length)).fill().map(async(_,workerId)=>{while(currentIndex<ips.length){const index=currentIndex++;if(index>=ips.length)break;const ip=ips[index];activeWorkers++;try{await new Promise(resolve=>setTimeout(resolve,Math.random()*100));const parsedIP=parseIPFormat(ip,port);if(!parsedIP) throw new Error('Invalid IP');const result=await smartRetry((signal)=>singleLatencyTest(parsedIP.host,parsedIP.port,3000,signal),2,200,4000);if(result){const locationCode=cloudflareLocations[result.colo]?cloudflareLocations[result.colo].cca2:result.colo;const countryName=getCountryName(locationCode);const typeText=result.type==='official'?'官方':'反代';const calibratedLatency=calibrateLatency(result.latency);let display;if(result.type==='official'){display=\`\${parsedIP.host}:\${parsedIP.port}#\${countryName}|\${locationCode} \${typeText} \${calibratedLatency}ms\`}else{display=\`\${parsedIP.host}:\${parsedIP.port}#\${countryName} \${typeText} \${calibratedLatency}ms\`}result.locationCode=locationCode;result.display=display;result.calibratedLatency=calibratedLatency;results.push(result);successCount++}else{failCount++}}catch(error){failCount++}finally{activeWorkers--;completedTests++;const successPercentVal=(successCount/totalIPs)*100;const failPercentVal=(failCount/totalIPs)*100;progressBarSuccess.style.width=successPercentVal+'%';progressBarFail.style.width=failPercentVal+'%';validCountLabel.textContent=successCount;progressPercent.textContent=Math.round((completedTests/totalIPs)*100)+'%';progressText.textContent=\`进度: \${completedTests}/\${totalIPs}\`;await new Promise(resolve=>setTimeout(resolve,0))}}});await Promise.all(workers);return results} function displayResults(){const ipList=document.getElementById('ip-list');const resultCountVal=document.getElementById('result-count-val');const showMoreSection=document.getElementById('show-more-section');const showMoreBtn=document.getElementById('show-more-btn');const ipDisplayInfo=document.getElementById('ip-display-info');if(testResults.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">无有效IP</div>';resultCountVal.textContent='0';ipDisplayInfo.textContent='';showMoreSection.style.display='none';displayedResults=[];updateButtonStates();return}const maxDisplayCount=showingAll?testResults.length:Math.min(testResults.length,16);displayedResults=testResults.slice(0,maxDisplayCount);resultCountVal.textContent=testResults.length;if(testResults.length<=16){ipDisplayInfo.textContent=\`共 \${testResults.length} 个结果\`;showMoreSection.style.display='none'}else{ipDisplayInfo.textContent=\`显示 \${maxDisplayCount} / \${testResults.length} 个结果\`;showMoreSection.style.display='block';showMoreBtn.textContent=showingAll?'显示更少':'显示更多';showMoreBtn.disabled=false}const resultsHTML=displayedResults.map(result=>{const calibratedLatency=result.calibratedLatency||calibrateLatency(result.latency);let latencyClass='good-latency';if(calibratedLatency>200)latencyClass='bad-latency';else if(calibratedLatency>100)latencyClass='medium-latency';return\`<div class="ip-item"><span class="\${latencyClass}">\${result.display}</span></div>\`}).join('');ipList.innerHTML=resultsHTML;updateButtonStates()} function createRegionFilter(){const uniqueRegions=[...new Set(testResults.map(result=>result.locationCode))];uniqueRegions.sort();const filterContainer=document.getElementById('region-filter');if(!filterContainer)return;if(uniqueRegions.length===0){filterContainer.style.display='none';return}let filterHTML='<button class="btn btn-secondary region-btn active" style="width:auto; padding:0.25rem 0.75rem; font-size:0.85rem;" data-region="all">全部</button>';uniqueRegions.forEach(region=>{const count=testResults.filter(r=>r.locationCode===region).length;filterHTML+=\`<button class="btn btn-secondary region-btn" style="width:auto; padding:0.25rem 0.75rem; font-size:0.85rem;" data-region="\${region}">\${region}(\${count})</button>\`});filterContainer.innerHTML=filterHTML;filterContainer.style.display='flex';document.querySelectorAll('.region-btn').forEach(button=>{button.addEventListener('click',function(e){e.preventDefault();document.querySelectorAll('.region-btn').forEach(btn=>{btn.classList.remove('active');btn.style.background='transparent';btn.style.color='var(--text)'});this.classList.add('active');this.style.background='var(--primary)';this.style.color='white';const selectedRegion=this.getAttribute('data-region');if(selectedRegion==='all'){displayedResults=[...testResults]}else{displayedResults=testResults.filter(result=>result.locationCode===selectedRegion)}showingAll=false;displayFilteredResults()})})} function displayFilteredResults(){const ipList=document.getElementById('ip-list');const showMoreSection=document.getElementById('show-more-section');const showMoreBtn=document.getElementById('show-more-btn');const ipDisplayInfo=document.getElementById('ip-display-info');if(displayedResults.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">无结果</div>';showMoreSection.style.display='none';updateButtonStates();return}const maxDisplayCount=showingAll?displayedResults.length:Math.min(displayedResults.length,16);const currentResults=displayedResults.slice(0,maxDisplayCount);const filteredCount=displayedResults.length;if(filteredCount<=16){ipDisplayInfo.textContent=\`筛选: \${filteredCount} 个\`;showMoreSection.style.display='none'}else{ipDisplayInfo.textContent=\`显示 \${maxDisplayCount} / \${filteredCount} 个\`;showMoreSection.style.display='block';showMoreBtn.textContent=showingAll?'显示更少':'显示更多'}const resultsHTML=currentResults.map(result=>{const calibratedLatency=result.calibratedLatency||calibrateLatency(result.latency);let latencyClass='good-latency';if(calibratedLatency>200)latencyClass='bad-latency';else if(calibratedLatency>100)latencyClass='medium-latency';return\`<div class="ip-item"><span class="\${latencyClass}">\${result.display}</span></div>\`}).join('');ipList.innerHTML=resultsHTML;updateButtonStates()} async function loadIPs(ipSource,port,count){try{const response=await fetch(\`?loadIPs=\${ipSource}&port=\${port}&count=\${count}\`,{method:'GET'});if(!response.ok){throw new Error('Failed to load IPs')}const data=await response.json();return data.ips||[]}catch(error){return[]}} function scrollToElement(id){const el=document.getElementById(id);if(el){el.scrollIntoView({behavior:'smooth',block:'start'})}} async function startTest(){const testBtn=document.getElementById('test-btn');const portSelect=document.getElementById('port-select');const ipSourceSelect=document.getElementById('ip-source-select');const countInput=document.getElementById('count-input');const concurrencyInput=document.getElementById('concurrency-input');const progressBarSuccess=document.getElementById('progress-bar-success');const progressBarFail=document.getElementById('progress-bar-fail');const progressText=document.getElementById('progress-text');const ipList=document.getElementById('ip-list');const ipCount=document.getElementById('ip-count');const resultCountVal=document.getElementById('result-count-val');const showMoreSection=document.getElementById('show-more-section');const selectedPort=portSelect.value;const selectedIPSource=ipSourceSelect.value;const selectedCount=parseInt(countInput.value)||50;const selectedConcurrency=parseInt(concurrencyInput.value)||6;localStorage.setItem(StorageKeys.PORT,selectedPort);localStorage.setItem(StorageKeys.IP_SOURCE,selectedIPSource);localStorage.setItem(StorageKeys.COUNT,selectedCount);localStorage.setItem(StorageKeys.CONCURRENCY,selectedConcurrency);testBtn.disabled=true;testBtn.innerHTML='<i class="fas fa-spinner fa-spin"></i> 处理中...';disableAllButtons();testResults=[];displayedResults=[];showingAll=false;currentDisplayType='loading';ipList.innerHTML='<div style="text-align:center;padding:1rem;">正在加载IP列表...</div>';showMoreSection.style.display='none';progressBarSuccess.style.width='0%';progressBarFail.style.width='0%';resultCountVal.textContent='0';if(window.innerWidth<768)scrollToElement('status-card');let ipSourceName=''; let finalSourceParam = selectedIPSource; switch(selectedIPSource){case'official':ipSourceName='Official';break;case'as13335':ipSourceName='AS13335';break;case'as209242':ipSourceName='AS209242';break;case'as24429':ipSourceName='Alibaba';break;case'as199524':ipSourceName='G-Core';break;case'local':ipSourceName='本地';break;case'custom':ipSourceName='远程API';const customUrl=document.getElementById('custom-api-url').value.trim();if(!customUrl||(!customUrl.startsWith('http://')&&!customUrl.startsWith('https://'))){showToast('请输入有效的 HTTP/HTTPS API 地址','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();return}finalSourceParam=customUrl;break;default:ipSourceName='未知'}progressText.textContent='正在加载列表...';if(selectedIPSource==='local'){const savedFilesSelect=document.getElementById('saved-files-select');const fileId=savedFilesSelect.value;if(!fileId){if(originalIPs.length===0){showToast('请先上传文件','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();progressText.textContent='未就绪';return}const allIPs=[...originalIPs];const shuffled=shuffleArray(allIPs);originalIPs=selectedCount<shuffled.length?shuffled.slice(0,selectedCount):shuffled}else{const fileData=localStorage.getItem(LocalStorageKeys.FILE_PREFIX+fileId);if(!fileData){showToast('文件失效','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();return}const parsedData=JSON.parse(fileData);const currentPort=selectedPort;const parsedIPs=parseFileContent(parsedData.content,currentPort);if(parsedIPs.length===0){showToast('无有效IP','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();return}const shuffled=shuffleArray(parsedIPs);originalIPs=selectedCount<shuffled.length?shuffled.slice(0,selectedCount):shuffled}}else{originalIPs=await loadIPs(finalSourceParam,selectedPort,selectedCount)}if(originalIPs.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">加载失败</div>';ipCount.textContent='0';testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();progressText.textContent='失败';return}ipCount.textContent=originalIPs.length;displayLoadedIPs();testBtn.innerHTML='<i class="fas fa-circle-notch fa-spin"></i> 测速中...';progressText.textContent='测速进行中...';currentDisplayType='testing';showMoreSection.style.display='none'; let activeSni = document.getElementById('custom-sni-domain').value.trim(); if (!activeSni) { activeSni = await getActiveSNIDomain(); document.getElementById('custom-sni-domain').value = activeSni; } const results=await testIPsWithConcurrency(originalIPs,selectedPort,selectedConcurrency);testResults=results.sort((a,b)=>a.latency-b.latency);currentDisplayType='results';showingAll=false;displayResults();createRegionFilter();testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-redo"></i> 重新测速';enableButtons();progressText.textContent='测速完成';scrollToElement('result-card')}</script></body></html>`;
+    const html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>在线优选工具</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"><style>${getCommonCSS()} body { justify-content: flex-start; padding: 2rem 1rem 8rem 1rem; } .container { max-width: 1000px; width: 100%; margin: 0 auto; } .card { padding: 1.5rem; margin-bottom: 1.5rem; } h3 { margin-top: 0; margin-bottom: 1.25rem; font-size: 1.25rem; font-weight: 700; color: var(--text); display: flex; align-items: center; gap: 0.75rem; } .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; } .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; } @media (max-width: 768px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } } .nav-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; } .nav-brand { font-size: 1.5rem; font-weight: 700; background: linear-gradient(to right, #6366f1, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent; } .stats-val { font-size: 1.25rem; font-weight: 600; color: var(--primary); } .stats-label { font-size: 0.85rem; color: var(--text-light); } .proxy-warning { color: #ef4444; font-weight: bold; } .ip-list { background: rgba(0,0,0,0.03); padding: 1rem; border-radius: 0.5rem; border: 1px solid var(--border); max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.9rem; } .ip-item { margin: 4px 0; padding: 4px 8px; border-radius: 4px; display: flex; justify-content: space-between; } .ip-item:hover { background: rgba(255,255,255,0.05); } .good-latency { color: #22c55e; } .medium-latency { color: #f59e0b; } .bad-latency { color: #ef4444; } .progress-container { background: rgba(0,0,0,0.1); border-radius: 2rem; height: 10px; overflow: hidden; margin: 1rem 0; display: flex; } .progress-bar-success { background: #22c55e; height: 100%; width: 0%; transition: width 0.3s ease; } .progress-bar-fail { background: #ef4444; height: 100%; width: 0%; transition: width 0.3s ease; } .btn-group { display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem; } label { font-size: 0.9rem; font-weight: 600; margin-bottom: 0.5rem; display: block; } select, input[type="number"] { width: 100%; } .control-section { padding-bottom: 1.5rem; border-bottom: 1px dashed var(--border); margin-bottom: 1.5rem; } .control-section:last-child { border-bottom: none; margin-bottom: 0; padding-bottom: 0; }</style><script>function showToast(msg, type = 'success') { let container = document.querySelector('.toast-container'); if (!container) { container = document.createElement('div'); container.className = 'toast-container'; document.body.appendChild(container); } const toast = document.createElement('div'); toast.className = 'toast ' + type; const icon = type === 'success' ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-exclamation-circle"></i>'; toast.innerHTML = icon + '<span>' + msg + '</span>'; container.appendChild(toast); requestAnimationFrame(() => toast.classList.add('show')); setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 300); }, 3000); }</script></head><body><div class="container"><div class="nav-header"><div class="nav-brand">在线优选 IP</div><div style="display:flex; gap:0.5rem;"><a href="/admin" class="btn btn-secondary" style="width:auto; padding: 0.5rem 1rem;"><i class="fas fa-cog"></i> 配置</a><a href="/" class="btn btn-secondary" style="width:auto; padding: 0.5rem 1rem;"><i class="fas fa-arrow-left"></i> 首页</a></div></div>${!isChina ? `<div class="card" style="padding: 1rem; margin-bottom: 1.5rem;"><div style="display:flex; gap:1rem; align-items:center;"><i class="fas fa-exclamation-triangle" style="color:#ef4444; font-size:1.5rem;"></i><div><h4 style="margin:0; color:#ef4444;">代理环境警告</h4><p style="margin:0.25rem 0 0 0; font-size:0.9rem;">检测到您可能处于代理或 VPN 环境中（${country}），测速结果可能不准确。建议关闭代理后刷新页面。</p></div></div></div>` : ''}<div class="card" id="status-card"><h3><i class="fas fa-chart-bar" style="color:var(--primary)"></i> 状态概览</h3><div class="grid-3"><div style="text-align:center;"><div class="stats-label">您的位置</div><div class="stats-val ${countryDisplayClass}">${countryDisplayText}</div></div><div style="text-align:center;"><div class="stats-label">加载 IP 数</div><div class="stats-val" id="ip-count">0</div></div><div style="text-align:center;"><div class="stats-label">有效结果</div><div class="stats-val" id="result-count-val" style="color:#22c55e;">0</div></div></div><div style="margin-top: 1.5rem;"><div style="display:flex; justify-content:space-between; font-size:0.85rem; color:var(--text-light); margin-bottom: 0.5rem;"><span id="progress-text">准备就绪</span><span id="progress-percent">0%</span></div><div class="progress-container"><div class="progress-bar-success" id="progress-bar-success"></div><div class="progress-bar-fail" id="progress-bar-fail"></div></div></div></div><div class="card"><h3><i class="fas fa-sliders-h" style="color:#f59e0b"></i> 测速配置</h3><div class="control-section"><div class="grid-3"><div class="form-group"><label>IP 来源库</label><select id="ip-source-select"><option value="official">Cloudflare 官方</option><option value="as13335">AS13335 (Cloudflare)</option><option value="as209242">AS209242 (ArvanCloud)</option><option value="as24429">AS24429 (Alibaba)</option><option value="as199524">AS199524 (G-Core)</option><option value="local">本地文件上传</option><option value="custom">远程 API</option></select><div id="custom-api-input-group" style="display:none; margin-top:0.75rem;"><input type="text" id="custom-api-url" placeholder="请输入 API 地址 (如: https://example.com/ips.txt)" style="font-size:16px;"><div style="font-size:0.75rem; color:var(--text-light); margin-top:0.25rem;">支持格式: 纯文本 IP/CIDR (换行分隔)</div></div></div><div class="form-group"><label>测速端口</label><select id="port-select"><option value="443">443 (HTTPS)</option><option value="2053">2053 (HTTPS)</option><option value="2083">2083 (HTTPS)</option><option value="2087">2087 (HTTPS)</option><option value="2096">2096 (HTTPS)</option></select></div><div class="form-group"><label>本地文件</label><div style="display:flex; gap:0.5rem;"><input type="file" id="local-file-input" accept=".txt,.json,.csv,.conf,.list" style="display:none;" onchange="handleFileUpload(this.files)"><button class="btn btn-secondary" onclick="document.getElementById('local-file-input').click()" style="width:100%; padding: 0.75rem;"><i class="fas fa-upload"></i> 选择文件</button></div></div></div><div class="form-group" style="margin-top:1rem;"><label>测速证书外壳 (SNI DNS 域名)</label><div style="display:flex; gap:0.5rem;"><input type="text" id="custom-sni-domain" placeholder="留空则自动获取官方最新高可用域名..." style="font-family:monospace;"><button class="btn btn-secondary" onclick="checkSNI()" style="width:auto; white-space:nowrap; padding:0 1rem;"><i class="fas fa-satellite-dish"></i> 自动获取</button></div><div style="font-size:0.75rem; color:var(--text-light); margin-top:0.4rem;"><i class="fas fa-info-circle"></i> 此域名仅作为“动态电话本”，完全安全且不参与数据传输。强烈建议点击自动获取。</div></div><div class="grid-2" style="margin-top:1rem;"><div class="form-group"><label>测试数量</label><input type="number" id="count-input" value="50" min="1" max="500"></div><div class="form-group"><label>并发线程</label><input type="number" id="concurrency-input" value="6" min="1" max="20"></div></div><div style="margin-top:1rem; display:none;" id="saved-files-wrapper"><label>已保存的列表</label><div style="display:flex; gap:0.5rem;"><select id="saved-files-select" onchange="handleSavedFileSelect(this)"></select><button class="btn btn-secondary" style="width:auto; padding:0 0.75rem;" onclick="deleteSavedFile()" id="delete-btn" disabled><i class="fas fa-trash"></i></button></div></div></div></div><div class="card" id="result-card"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;"><h3><i class="fas fa-list-ul" style="color:#8b5cf6"></i> 测速结果</h3><span id="ip-display-info" style="font-size:0.85rem; color:var(--text-light);"></span></div><div id="region-filter" style="margin-bottom:1rem; display:none; gap:0.5rem; flex-wrap:wrap;"></div><div class="ip-list" id="ip-list"><div style="text-align:center; color:var(--text-light); padding:2rem;">请配置参数并点击"开始测速"</div></div><div style="margin-top:1rem; display:none; text-align:center;" id="show-more-section"><button class="btn btn-secondary" style="width:auto;" onclick="toggleShowMore()" id="show-more-btn">显示更多</button></div><div class="btn-group"><button class="btn" style="flex:1; background:linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);" id="replace-cf-btn" onclick="replaceCFIPs()" disabled><i class="fas fa-exchange-alt"></i> 替换优选 IP</button><button class="btn" style="flex:1; background:linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);" id="append-cf-btn" onclick="appendCFIPs()" disabled><i class="fas fa-plus"></i> 追加优选 IP</button><button class="btn" style="flex:1; background:linear-gradient(135deg, #d946ef 0%, #c026d3 100%);" id="replace-fd-btn" onclick="replaceFDIPs()" disabled><i class="fas fa-sync"></i> 替换反代 IP</button><button class="btn" style="flex:1; background:linear-gradient(135deg, #ec4899 0%, #db2777 100%);" id="append-fd-btn" onclick="appendFDIPs()" disabled><i class="fas fa-folder-plus"></i> 追加反代 IP</button></div></div></div><div style="position: fixed; bottom: 2rem; left: 0; right: 0; display: flex; justify-content: center; pointer-events: none; z-index: 100;"><button class="btn" id="test-btn" onclick="startTest()" style="pointer-events: auto; box-shadow: 0 10px 30px rgba(79, 70, 229, 0.4); width: auto; padding: 1rem 3rem; border-radius: 2rem;"><i class="fas fa-play"></i> 开始测速</button></div><script>const LATENCY_CALIBRATION_FACTOR = 0.25; function calibrateLatency(rawLatency) { return Math.max(1, Math.round(rawLatency * LATENCY_CALIBRATION_FACTOR)); } const LocalStorageKeys = { SAVED_FILES: 'cf-ip-saved-files', FILE_PREFIX: 'cf-ip-file-' }; let originalIPs =[], testResults = [], displayedResults =[], showingAll = false, currentDisplayType = 'loading', cloudflareLocations = {}; const StorageKeys = { PORT: 'cf-ip-test-port', IP_SOURCE: 'cf-ip-test-source', COUNT: 'cf-ip-test-count', CONCURRENCY: 'cf-ip-test-concurrency', CUSTOM_SNI: 'cf-ip-custom-sni' }; async function getActiveSNIDomain() { const userSni = document.getElementById('custom-sni-domain').value.trim(); if (userSni) return userSni; try { const response = await fetch('https://cloudflare-dns.com/dns-query?name=nip.090227.xyz&type=TXT', { headers: { 'Accept': 'application/dns-json' } }); if (response.ok) { const data = await response.json(); if (data.Status === 0 && data.Answer && data.Answer.length > 0) { return data.Answer[0].data.replace(/^"(.*)"$/, '$1'); } } return 'nip.lfree.org'; } catch (error) { return 'ip.090227.xyz'; } } function ipToHex(ip) { return ip.split('.').map(part => { const hex = parseInt(part, 10).toString(16); return hex.length === 1 ? '0' + hex : hex; }).join(''); } window.checkSNI = async function() { const btn = event.currentTarget; const originalHtml = btn.innerHTML; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; const activeSni = await getActiveSNIDomain(); const inputSni = document.getElementById('custom-sni-domain'); inputSni.value = activeSni; localStorage.setItem(StorageKeys.CUSTOM_SNI, activeSni); btn.innerHTML = originalHtml; showToast('已获取最新动态解析域: ' + activeSni, 'success'); }; function initializeLocalStorage(){if(!localStorage.getItem(LocalStorageKeys.SAVED_FILES)){localStorage.setItem(LocalStorageKeys.SAVED_FILES,JSON.stringify([]))}updateSavedFilesSelect()} function updateSavedFilesSelect(){const savedFilesSelect=document.getElementById('saved-files-select');const savedFiles=JSON.parse(localStorage.getItem(LocalStorageKeys.SAVED_FILES)||'[]');const wrapper=document.getElementById('saved-files-wrapper');if(savedFiles.length>0){wrapper.style.display='block'}else{wrapper.style.display='none'}savedFilesSelect.innerHTML='<option value="">-- 选择已保存文件 --</option>';savedFiles.forEach(file=>{const option=document.createElement('option');option.value=file.id;option.textContent=\`\${file.name} (\${file.ipCount}IP)\`;savedFilesSelect.appendChild(option)});updateFileManagementButtons()} function updateFileManagementButtons(){const savedFilesSelect=document.getElementById('saved-files-select');const deleteBtn=document.getElementById('delete-btn');const hasSelection=savedFilesSelect.value!=='';deleteBtn.disabled=!hasSelection} function handleSavedFileSelect(select){updateFileManagementButtons();if(select.value){document.getElementById('ip-source-select').value='local';loadSavedFile(select.value)}} function parseCIDRFormat(cidrString){try{const[network,prefixLength]=cidrString.split('/');const prefix=parseInt(prefixLength);if(isNaN(prefix)||prefix<8||prefix>32){return null}const ipRegex=/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/;if(!ipRegex.test(network)){return null}const octets=network.split('.').map(Number);for(const octet of octets){if(octet<0||octet>255){return null}}return{network:network,prefixLength:prefix,type:'cidr'}}catch(error){return null}} function generateIPsFromCIDR(cidr,maxIPs=100){try{const[network,prefixLength]=cidr.split('/');const prefix=parseInt(prefixLength);const ipToInt=(ip)=>{return ip.split('.').reduce((acc,octet)=>(acc<<8)+parseInt(octet),0)>>>0};const intToIP=(int)=>{return[(int>>>24)&255,(int>>>16)&255,(int>>>8)&255,int&255].join('.')};const networkInt=ipToInt(network);const hostBits=32-prefix;const numHosts=Math.pow(2,hostBits);if(numHosts<=2){return[]}const maxHosts=numHosts-2;const actualCount=Math.min(maxIPs,maxHosts);const ips=new Set();if(maxHosts<=0){return[]}let attempts=0;const maxAttempts=actualCount*10;while(ips.size<actualCount&&attempts<maxAttempts){const randomOffset=Math.floor(Math.random()*maxHosts)+1;const randomIP=intToIP(networkInt+randomOffset);ips.add(randomIP);attempts++}return Array.from(ips)}catch(error){return[]}} function handleFileUpload(files){if(files.length===0)return;const file=files[0];const reader=new FileReader();reader.onload=function(e){const content=e.target.result;const fileName=file.name.replace(/\\.[^/.]+$/,"");const targetPort=document.getElementById('port-select').value;const parsedIPs=parseFileContent(content,targetPort);if(parsedIPs.length===0){showToast('未能在文件中找到有效的IP地址','error');return}saveFileToLocalStorage(fileName,parsedIPs,content);document.getElementById('ip-source-select').value='local';loadIPsFromArray(parsedIPs);showToast(\`成功加载 \${parsedIPs.length} 个IP\`,'success')};reader.onerror=function(){showToast('文件读取失败','error')};reader.readAsText(file)} function parseFileContent(content,targetPort){const lines=content.split('\\n');const ips=new Set();const userCount=parseInt(document.getElementById('count-input').value)||50;lines.forEach(line=>{line=line.trim();if(!line||line.startsWith('#')||line.startsWith('//'))return;const cidrInfo=parseCIDRFormat(line);if(cidrInfo){const maxIPsPerCIDR=Math.ceil(userCount/lines.length);const ipsFromCIDR=generateIPsFromCIDR(line,maxIPsPerCIDR);ipsFromCIDR.forEach(ip=>{const formattedIP=\`\${ip}:\${targetPort}\`;ips.add(formattedIP)});return}const parsedIP=parseIPLine(line,targetPort);if(parsedIP){if(Array.isArray(parsedIP)){parsedIP.forEach(ip=>ips.add(ip))}else{ips.add(parsedIP)}}});const ipArray=Array.from(ips);return userCount<ipArray.length?ipArray.slice(0,userCount):ipArray} function parseIPLine(line,targetPort){try{let ip='';let port=targetPort;let comment='';let mainPart=line;if(line.includes('#')){const parts=line.split('#');mainPart=parts[0].trim();comment=parts.slice(1).join('#').trim()}if(mainPart.includes(':')){const parts=mainPart.split(':');if(parts.length===2){ip=parts[0].trim();port=parts[1].trim()}else{return null}}else{ip=mainPart.trim()}if(!isValidIP(ip)){return null}const portNum=parseInt(port);if(isNaN(portNum)||portNum<1||portNum>65535){return null}if(comment){return\`\${ip}:\${port}#\${comment}\`}else{return\`\${ip}:\${port}\`}}catch(error){return null}} function isValidIP(ip){const ipv4Regex=/^(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})\\.(\\d{1,3})$/;const match=ip.match(ipv4Regex);if(match){for(let i=1;i<=4;i++){const num=parseInt(match[i]);if(num<0||num>255){return false}}return true}return false} function saveFileToLocalStorage(fileName,ips,originalContent){const fileId='file_'+Date.now();const fileData={id:fileId,name:fileName,ips:ips,content:originalContent,ipCount:ips.length,timestamp:Date.now()};localStorage.setItem(LocalStorageKeys.FILE_PREFIX+fileId,JSON.stringify(fileData));const savedFiles=JSON.parse(localStorage.getItem(LocalStorageKeys.SAVED_FILES)||'[]');savedFiles.push({id:fileId,name:fileName,ipCount:ips.length,timestamp:Date.now()});localStorage.setItem(LocalStorageKeys.SAVED_FILES,JSON.stringify(savedFiles));updateSavedFilesSelect();document.getElementById('saved-files-select').value=fileId;updateFileManagementButtons()} function loadSavedFile(fileId){if(!fileId)return;const fileData=localStorage.getItem(LocalStorageKeys.FILE_PREFIX+fileId);if(!fileData){showToast('文件不存在','error');return}const parsedData=JSON.parse(fileData);const currentPort=document.getElementById('port-select').value;const updatedIPs=parsedData.ips.map(ip=>updateIPPort(ip,currentPort));document.getElementById('ip-source-select').value='local';loadIPsFromArray(updatedIPs);showToast(\`已加载 "\${parsedData.name}"\`,'success')} function updateIPPort(ipString,newPort){try{let ip='';let port=newPort;let comment='';if(ipString.includes('#')){const parts=ipString.split('#');const mainPart=parts[0].trim();comment=parts[1].trim();if(mainPart.includes(':')){const ipPortParts=mainPart.split(':');if(ipPortParts.length===2){ip=ipPortParts[0].trim()}else{return ipString}}else{ip=mainPart}}else{if(ipString.includes(':')){const ipPortParts=ipString.split(':');if(ipPortParts.length===2){ip=ipPortParts[0].trim()}else{return ipString}}else{ip=ipString}}if(comment){return\`\${ip}:\${port}#\${comment}\`}else{return\`\${ip}:\${port}\`}}catch(error){return ipString}} function loadIPsFromArray(ips){originalIPs=ips;testResults=[];displayedResults=[];showingAll=false;currentDisplayType='loading';document.getElementById('ip-count').textContent=ips.length;displayLoadedIPs();document.getElementById('test-btn').disabled=false;updateButtonStates()} function deleteSavedFile(){const savedFilesSelect=document.getElementById('saved-files-select');const fileId=savedFilesSelect.value;if(!fileId)return;if(!confirm('确定删除？'))return;const savedFiles=JSON.parse(localStorage.getItem(LocalStorageKeys.SAVED_FILES)||'[]');const filteredFiles=savedFiles.filter(file=>file.id!==fileId);localStorage.setItem(LocalStorageKeys.SAVED_FILES,JSON.stringify(filteredFiles));localStorage.removeItem(LocalStorageKeys.FILE_PREFIX+fileId);updateSavedFilesSelect();updateFileManagementButtons();showToast('文件已删除','success')} async function loadCloudflareLocations(){try{const response=await fetch(atob('aHR0cHM6Ly9zcGVlZC5jbG91ZGZsYXJlLmNvbS9sb2NhdGlvbnM='));if(response.ok){const locations=await response.json();cloudflareLocations={};locations.forEach(location=>{cloudflareLocations[location.iata]=location})}}catch(error){}} function initializeSettings(){const portSelect=document.getElementById('port-select');const ipSourceSelect=document.getElementById('ip-source-select');const countInput=document.getElementById('count-input');const concurrencyInput=document.getElementById('concurrency-input');const customApiGroup = document.getElementById('custom-api-input-group');const customApiInput = document.getElementById('custom-api-url');const customSniInput = document.getElementById('custom-sni-domain');const savedPort=localStorage.getItem(StorageKeys.PORT);const savedIPSource=localStorage.getItem(StorageKeys.IP_SOURCE);const savedCount=localStorage.getItem(StorageKeys.COUNT);const savedConcurrency=localStorage.getItem(StorageKeys.CONCURRENCY);const savedCustomUrl = localStorage.getItem('cf-ip-custom-url');const savedSni = localStorage.getItem(StorageKeys.CUSTOM_SNI);if(savedPort)portSelect.value=savedPort;if(savedIPSource) {ipSourceSelect.value=savedIPSource;if(savedIPSource === 'custom') customApiGroup.style.display = 'block';}if(savedCount)countInput.value=savedCount;if(savedConcurrency)concurrencyInput.value=savedConcurrency;if(savedCustomUrl) customApiInput.value = savedCustomUrl;if(savedSni) customSniInput.value = savedSni;portSelect.addEventListener('change',function(){localStorage.setItem(StorageKeys.PORT,this.value);if(originalIPs.length>0){const newPort=this.value;const updatedIPs=originalIPs.map(ip=>updateIPPort(ip,newPort));loadIPsFromArray(updatedIPs)}});ipSourceSelect.addEventListener('change',function(){localStorage.setItem(StorageKeys.IP_SOURCE,this.value);if(this.value === 'custom') {customApiGroup.style.display = 'block';customApiInput.focus();} else {customApiGroup.style.display = 'none';}});customApiInput.addEventListener('input', function() { localStorage.setItem('cf-ip-custom-url', this.value.trim()); });customSniInput.addEventListener('input', function() { localStorage.setItem(StorageKeys.CUSTOM_SNI, this.value.trim()); });countInput.addEventListener('change',function(){localStorage.setItem(StorageKeys.COUNT,this.value)});concurrencyInput.addEventListener('change',function(){localStorage.setItem(StorageKeys.CONCURRENCY,this.value)})} document.addEventListener('DOMContentLoaded',async function(){await loadCloudflareLocations();initializeSettings();initializeLocalStorage()}); function shuffleArray(array){const newArray=[...array];for(let i=newArray.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[newArray[i],newArray[j]]=[newArray[j],newArray[i]]}return newArray} function toggleShowMore(){if(currentDisplayType==='testing'){return}showingAll=!showingAll;if(currentDisplayType==='loading'){displayLoadedIPs()}else if(currentDisplayType==='results'){displayResults()}} function displayLoadedIPs(){const ipList=document.getElementById('ip-list');const showMoreSection=document.getElementById('show-more-section');const showMoreBtn=document.getElementById('show-more-btn');const ipDisplayInfo=document.getElementById('ip-display-info');if(originalIPs.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">加载IP列表失败</div>';showMoreSection.style.display='none';ipDisplayInfo.textContent='';return}const displayCount=showingAll?originalIPs.length:Math.min(originalIPs.length,16);const displayIPs=originalIPs.slice(0,displayCount);if(originalIPs.length<=16){ipDisplayInfo.textContent=\`共 \${originalIPs.length} 个IP\`;showMoreSection.style.display='none'}else{ipDisplayInfo.textContent=\`显示 \${displayCount} / \${originalIPs.length} 个IP\`;if(currentDisplayType!=='testing'){showMoreSection.style.display='block';showMoreBtn.textContent=showingAll?'显示更少':'显示更多';showMoreBtn.disabled=false}else{showMoreSection.style.display='none'}}ipList.innerHTML=displayIPs.map(ip=>\`<div class="ip-item"><span>\${ip}</span></div>\`).join('')} function updateButtonStates(){const replaceCfBtn=document.getElementById('replace-cf-btn');const appendCfBtn=document.getElementById('append-cf-btn');const replaceFdBtn=document.getElementById('replace-fd-btn');const appendFdBtn=document.getElementById('append-fd-btn');const hasResults=displayedResults.length>0;replaceCfBtn.disabled=!hasResults;appendCfBtn.disabled=!hasResults;replaceFdBtn.disabled=!hasResults;appendFdBtn.disabled=!hasResults} function disableAllButtons(){document.querySelectorAll('button, select, input').forEach(el=>el.disabled=true)} function enableButtons(){document.querySelectorAll('button, select, input').forEach(el=>{if(el.id!=='delete-btn')el.disabled=false});updateButtonStates();updateFileManagementButtons()} function formatIPForSave(result){const port=document.getElementById('port-select').value;let ip=result.ip;let countryCode=result.locationCode||'XX';let countryName=getCountryName(countryCode);return\`\${ip}:\${port}#\${countryName}|\${countryCode}\`} function formatIPForFD(result){const port=document.getElementById('port-select').value;let countryCode=result.locationCode||'XX';let countryName=getCountryName(countryCode);return\`\${result.ip}:\${port}#\${countryName}\`} function getCountryName(countryCode){const countryMap={'US':'美国','SG':'新加坡','DE':'德国','JP':'日本','KR':'韩国','HK':'香港','TW':'台湾','GB':'英国','FR':'法国','IN':'印度','BR':'巴西','CA':'加拿大','AU':'澳大利亚','NL':'荷兰','CH':'瑞士','SE':'瑞典','IT':'意大利','ES':'西班牙','RU':'俄罗斯','ZA':'南非','MX':'墨西哥','MY':'马来西亚','TH':'泰国','ID':'印度尼西亚','VN':'越南','PH':'菲律宾','TR':'土耳许','SA':'沙特阿拉伯','AE':'阿联酋','EG':'埃及','NG':'尼日利亚','IL':'以色列','PL':'波兰','UA':'乌克兰','CZ':'捷克','RO':'罗马尼亚','GR':'希腊','PT':'葡萄牙','DK':'丹麦','FI':'芬兰','NO':'挪威','AT':'奥地利','BE':'比利时','IE':'爱尔兰','LU':'卢森堡','CY':'塞浦路斯','MT':'马耳他','IS':'冰岛','CN':'中国'};return countryMap[countryCode]||countryCode} async function saveIPs(action,formatFunction,buttonId,successMessage){let ipsToSave=[];if(document.getElementById('region-filter')&&document.getElementById('region-filter').style.display!=='none'&&document.querySelector('.region-btn.active').getAttribute('data-region')!=='all'){ipsToSave=displayedResults}else{ipsToSave=testResults}if(ipsToSave.length===0){showToast('无有效IP可保存','error');return}const button=document.getElementById(buttonId);const originalText=button.innerHTML;disableAllButtons();button.textContent='保存中...';try{const saveCount=Math.min(ipsToSave.length,6);const ips=ipsToSave.slice(0,saveCount).map(result=>formatFunction(result));const response=await fetch(\`?action=\${action}\`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ips})});const data=await response.json();if(data.success){showToast(successMessage+' (前'+saveCount+'个)','success')}else{showToast(data.error||'保存失败','error')}}catch(error){showToast('保存失败','error')}finally{button.innerHTML=originalText;enableButtons()}} async function replaceCFIPs(){await saveIPs('replace-cf',formatIPForSave,'replace-cf-btn','已替换优选 IP')} async function appendCFIPs(){await saveIPs('append-cf',formatIPForSave,'append-cf-btn','已追加优选 IP')} async function replaceFDIPs(){await saveIPs('replace-fd',formatIPForFD,'replace-fd-btn','已替换反代 IP')} async function appendFDIPs(){await saveIPs('append-fd',formatIPForFD,'append-fd-btn','已追加反代 IP')} function isRetriableError(error){if(!error)return false;const errorMessage=error.message||error.toString();const retryablePatterns=['timeout','abort','network','fetch','failed','load failed','connection','socket','reset'];const nonRetryablePatterns=['HTTP 4','HTTP 5','404','500','502','503','certificate','SSL','TLS','CORS','blocked'];const isRetryable=retryablePatterns.some(pattern=>errorMessage.toLowerCase().includes(pattern.toLowerCase()));const isNonRetryable=nonRetryablePatterns.some(pattern=>errorMessage.toLowerCase().includes(pattern.toLowerCase()));return isRetryable&&!isNonRetryable} async function smartRetry(operation,maxAttempts=3,baseDelay=200,timeout=5000){let lastError;for(let attempt=1;attempt<=maxAttempts;attempt++){const controller=new AbortController();const timeoutId=setTimeout(()=>controller.abort(),timeout);try{const result=await Promise.race([operation(controller.signal),new Promise((_,reject)=>setTimeout(()=>reject(new Error('Operation timeout')),timeout))]);clearTimeout(timeoutId);if(result&&result.success!==false){return result}if(result&&result.error){if(result.error.includes('HTTP 4')||result.error.includes('HTTP 5')){return result}}lastError=result?result.error:new Error('Operation failed')}catch(error){clearTimeout(timeoutId);lastError=error;if(!error.message.includes('network')&&!error.message.includes('timeout')&&!error.message.includes('fetch')){throw error}}if(attempt<maxAttempts){const delay=baseDelay*Math.pow(2,attempt-1)+Math.random()*100;await new Promise(resolve=>setTimeout(resolve,delay))}}throw lastError} async function singleLatencyTest(ip, port, timeout, abortSignal) { const controller = new AbortController(); const timeoutId = setTimeout(() => controller.abort(), timeout); if (abortSignal) { abortSignal.addEventListener('abort', () => controller.abort()); } const startTime = Date.now(); try { const activeSni = document.getElementById('custom-sni-domain').value.trim(); const hexIp = ipToHex(ip); const targetUrl = \`https://\${hexIp}.\${activeSni}:\${port}/cdn-cgi/trace\`; const response = await fetch(targetUrl, { signal: controller.signal, mode: 'cors' }); clearTimeout(timeoutId); if (response.status === 200) { const latency = Date.now() - startTime; const responseText = await response.text(); const traceData = parseTraceResponse(responseText); if (traceData && traceData.ip && traceData.colo) { const responseIP = traceData.ip; let ipType = (responseIP.includes(':') || responseIP === ip) ? 'proxy' : 'official'; return { ip: ip, port: port, latency: latency, colo: traceData.colo, type: ipType, responseIP: responseIP }; } } return null; } catch (error) { clearTimeout(timeoutId); return null; } } function parseIPFormat(ipString,defaultPort){try{let host,port,comment;let mainPart=ipString;if(ipString.includes('#')){const parts=ipString.split('#');mainPart=parts[0];comment=parts[1]}if(mainPart.includes(':')){const parts=mainPart.split(':');host=parts[0];port=parseInt(parts[1])}else{host=mainPart;port=parseInt(defaultPort)}if(!host||!port||isNaN(port)){return null}return{host:host.trim(),port:port,comment:comment?comment.trim():null}}catch(error){return null}} function parseTraceResponse(responseText){try{const lines=responseText.split('\\n');const data={};for(const line of lines){const trimmedLine=line.trim();if(trimmedLine&&trimmedLine.includes('=')){const[key,value]=trimmedLine.split('=',2);data[key]=value}}return data}catch(error){return null}} async function testIPsWithConcurrency(ips,port,maxConcurrency=6){const results=[];const totalIPs=ips.length;let completedTests=0;let activeWorkers=0;let currentIndex=0;let successCount=0;let failCount=0;const validCountLabel=document.getElementById('result-count-val');const progressBarSuccess=document.getElementById('progress-bar-success');const progressBarFail=document.getElementById('progress-bar-fail');const progressText=document.getElementById('progress-text');const progressPercent=document.getElementById('progress-percent');const workers=Array(Math.min(maxConcurrency,ips.length)).fill().map(async(_,workerId)=>{while(currentIndex<ips.length){const index=currentIndex++;if(index>=ips.length)break;const ip=ips[index];activeWorkers++;try{await new Promise(resolve=>setTimeout(resolve,Math.random()*100));const parsedIP=parseIPFormat(ip,port);if(!parsedIP) throw new Error('Invalid IP');const result=await smartRetry((signal)=>singleLatencyTest(parsedIP.host,parsedIP.port,3000,signal),2,200,4000);if(result){const locationCode=cloudflareLocations[result.colo]?cloudflareLocations[result.colo].cca2:result.colo;const countryName=getCountryName(locationCode);const typeText=result.type==='official'?'官方':'反代';const calibratedLatency=calibrateLatency(result.latency);let display;if(result.type==='official'){display=\`\${parsedIP.host}:\${parsedIP.port}#\${countryName}|\${locationCode} \${typeText} \${calibratedLatency}ms\`}else{display=\`\${parsedIP.host}:\${parsedIP.port}#\${countryName} \${typeText} \${calibratedLatency}ms\`}result.locationCode=locationCode;result.display=display;result.calibratedLatency=calibratedLatency;results.push(result);successCount++}else{failCount++}}catch(error){failCount++}finally{activeWorkers--;completedTests++;const successPercentVal=(successCount/totalIPs)*100;const failPercentVal=(failCount/totalIPs)*100;progressBarSuccess.style.width=successPercentVal+'%';progressBarFail.style.width=failPercentVal+'%';validCountLabel.textContent=successCount;progressPercent.textContent=Math.round((completedTests/totalIPs)*100)+'%';progressText.textContent=\`进度: \${completedTests}/\${totalIPs}\`;await new Promise(resolve=>setTimeout(resolve,0))}}});await Promise.all(workers);return results} function displayResults(){const ipList=document.getElementById('ip-list');const resultCountVal=document.getElementById('result-count-val');const showMoreSection=document.getElementById('show-more-section');const showMoreBtn=document.getElementById('show-more-btn');const ipDisplayInfo=document.getElementById('ip-display-info');if(testResults.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">无有效IP</div>';resultCountVal.textContent='0';ipDisplayInfo.textContent='';showMoreSection.style.display='none';displayedResults=[];updateButtonStates();return}const maxDisplayCount=showingAll?testResults.length:Math.min(testResults.length,16);displayedResults=testResults.slice(0,maxDisplayCount);resultCountVal.textContent=testResults.length;if(testResults.length<=16){ipDisplayInfo.textContent=\`共 \${testResults.length} 个结果\`;showMoreSection.style.display='none'}else{ipDisplayInfo.textContent=\`显示 \${maxDisplayCount} / \${testResults.length} 个结果\`;showMoreSection.style.display='block';showMoreBtn.textContent=showingAll?'显示更少':'显示更多';showMoreBtn.disabled=false}const resultsHTML=displayedResults.map(result=>{const calibratedLatency=result.calibratedLatency||calibrateLatency(result.latency);let latencyClass='good-latency';if(calibratedLatency>200)latencyClass='bad-latency';else if(calibratedLatency>100)latencyClass='medium-latency';return\`<div class="ip-item"><span class="\${latencyClass}">\${result.display}</span></div>\`}).join('');ipList.innerHTML=resultsHTML;updateButtonStates()} function createRegionFilter(){const uniqueRegions=[...new Set(testResults.map(result=>result.locationCode))];uniqueRegions.sort();const filterContainer=document.getElementById('region-filter');if(!filterContainer)return;if(uniqueRegions.length===0){filterContainer.style.display='none';return}let filterHTML='<button class="btn btn-secondary region-btn active" style="width:auto; padding:0.25rem 0.75rem; font-size:0.85rem;" data-region="all">全部</button>';uniqueRegions.forEach(region=>{const count=testResults.filter(r=>r.locationCode===region).length;filterHTML+=\`<button class="btn btn-secondary region-btn" style="width:auto; padding:0.25rem 0.75rem; font-size:0.85rem;" data-region="\${region}">\${region}(\${count})</button>\`});filterContainer.innerHTML=filterHTML;filterContainer.style.display='flex';document.querySelectorAll('.region-btn').forEach(button=>{button.addEventListener('click',function(e){e.preventDefault();document.querySelectorAll('.region-btn').forEach(btn=>{btn.classList.remove('active');btn.style.background='transparent';btn.style.color='var(--text)'});this.classList.add('active');this.style.background='var(--primary)';this.style.color='white';const selectedRegion=this.getAttribute('data-region');if(selectedRegion==='all'){displayedResults=[...testResults]}else{displayedResults=testResults.filter(result=>result.locationCode===selectedRegion)}showingAll=false;displayFilteredResults()})})} function displayFilteredResults(){const ipList=document.getElementById('ip-list');const showMoreSection=document.getElementById('show-more-section');const showMoreBtn=document.getElementById('show-more-btn');const ipDisplayInfo=document.getElementById('ip-display-info');if(displayedResults.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">无结果</div>';showMoreSection.style.display='none';updateButtonStates();return}const maxDisplayCount=showingAll?displayedResults.length:Math.min(displayedResults.length,16);const currentResults=displayedResults.slice(0,maxDisplayCount);const filteredCount=displayedResults.length;if(filteredCount<=16){ipDisplayInfo.textContent=\`筛选: \${filteredCount} 个\`;showMoreSection.style.display='none'}else{ipDisplayInfo.textContent=\`显示 \${maxDisplayCount} / \${filteredCount} 个\`;showMoreSection.style.display='block';showMoreBtn.textContent=showingAll?'显示更少':'显示更多'}const resultsHTML=currentResults.map(result=>{const calibratedLatency=result.calibratedLatency||calibrateLatency(result.latency);let latencyClass='good-latency';if(calibratedLatency>200)latencyClass='bad-latency';else if(calibratedLatency>100)latencyClass='medium-latency';return\`<div class="ip-item"><span class="\${latencyClass}">\${result.display}</span></div>\`}).join('');ipList.innerHTML=resultsHTML;updateButtonStates()} async function loadIPs(ipSource,port,count){try{const response=await fetch(\`?loadIPs=\${ipSource}&port=\${port}&count=\${count}\`,{method:'GET'});if(!response.ok){throw new Error('Failed to load IPs')}const data=await response.json();return data.ips||[]}catch(error){return[]}} function scrollToElement(id){const el=document.getElementById(id);if(el){el.scrollIntoView({behavior:'smooth',block:'start'})}} async function startTest(){const testBtn=document.getElementById('test-btn');const portSelect=document.getElementById('port-select');const ipSourceSelect=document.getElementById('ip-source-select');const countInput=document.getElementById('count-input');const concurrencyInput=document.getElementById('concurrency-input');const progressBarSuccess=document.getElementById('progress-bar-success');const progressBarFail=document.getElementById('progress-bar-fail');const progressText=document.getElementById('progress-text');const ipList=document.getElementById('ip-list');const ipCount=document.getElementById('ip-count');const resultCountVal=document.getElementById('result-count-val');const showMoreSection=document.getElementById('show-more-section');const selectedPort=portSelect.value;const selectedIPSource=ipSourceSelect.value;const selectedCount=parseInt(countInput.value)||50;const selectedConcurrency=parseInt(concurrencyInput.value)||6;localStorage.setItem(StorageKeys.PORT,selectedPort);localStorage.setItem(StorageKeys.IP_SOURCE,selectedIPSource);localStorage.setItem(StorageKeys.COUNT,selectedCount);localStorage.setItem(StorageKeys.CONCURRENCY,selectedConcurrency);testBtn.disabled=true;testBtn.innerHTML='<i class="fas fa-spinner fa-spin"></i> 处理中...';disableAllButtons();testResults=[];displayedResults=[];showingAll=false;currentDisplayType='loading';ipList.innerHTML='<div style="text-align:center;padding:1rem;">正在加载IP列表...</div>';showMoreSection.style.display='none';progressBarSuccess.style.width='0%';progressBarFail.style.width='0%';resultCountVal.textContent='0';if(window.innerWidth<768)scrollToElement('status-card');let ipSourceName=''; let finalSourceParam = selectedIPSource; switch(selectedIPSource){case'official':ipSourceName='Official';break;case'as13335':ipSourceName='AS13335';break;case'as209242':ipSourceName='AS209242';break;case'as24429':ipSourceName='Alibaba';break;case'as199524':ipSourceName='G-Core';break;case'local':ipSourceName='本地';break;case'custom':ipSourceName='远程API';const customUrl=document.getElementById('custom-api-url').value.trim();if(!customUrl||(!customUrl.startsWith('http://')&&!customUrl.startsWith('https://'))){showToast('请输入有效的 HTTP/HTTPS API 地址','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();return}finalSourceParam=customUrl;break;default:ipSourceName='未知'}progressText.textContent='正在加载列表...';if(selectedIPSource==='local'){const savedFilesSelect=document.getElementById('saved-files-select');const fileId=savedFilesSelect.value;if(!fileId){if(originalIPs.length===0){showToast('请先上传文件','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();progressText.textContent='未就绪';return}const allIPs=[...originalIPs];const shuffled=shuffleArray(allIPs);originalIPs=selectedCount<shuffled.length?shuffled.slice(0,selectedCount):shuffled}else{const fileData=localStorage.getItem(LocalStorageKeys.FILE_PREFIX+fileId);if(!fileData){showToast('文件失效','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();return}const parsedData=JSON.parse(fileData);const currentPort=selectedPort;const parsedIPs=parseFileContent(parsedData.content,currentPort);if(parsedIPs.length===0){showToast('无有效IP','error');testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();return}const shuffled=shuffleArray(parsedIPs);originalIPs=selectedCount<shuffled.length?shuffled.slice(0,selectedCount):shuffled}}else{originalIPs=await loadIPs(finalSourceParam,selectedPort,selectedCount)}if(originalIPs.length===0){ipList.innerHTML='<div style="text-align:center;padding:1rem;">加载失败</div>';ipCount.textContent='0';testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-play"></i> 开始测速';enableButtons();progressText.textContent='失败';return}ipCount.textContent=originalIPs.length;displayLoadedIPs();testBtn.innerHTML='<i class="fas fa-circle-notch fa-spin"></i> 测速中...';progressText.textContent='测速进行中...';currentDisplayType='testing';showMoreSection.style.display='none'; let activeSni = document.getElementById('custom-sni-domain').value.trim(); if (!activeSni) { activeSni = await getActiveSNIDomain(); document.getElementById('custom-sni-domain').value = activeSni; } const results=await testIPsWithConcurrency(originalIPs,selectedPort,selectedConcurrency);testResults=results.sort((a,b)=>a.latency-b.latency);currentDisplayType='results';showingAll=false;displayResults();createRegionFilter();testBtn.disabled=false;testBtn.innerHTML='<i class="fas fa-redo"></i> 重新测速';enableButtons();progressText.textContent='测速完成';scrollToElement('result-card')}</script></body></html>`;
     return new Response(html, { headers: { 'Content-Type': 'text/html; charset=UTF-8' } });
-}
-
-async function coreHandler(request, env, ctx) {
-    try {
-        const appCtx = await getRequestContext(env);
-        let currentP = env.SUB_PATH || env.subpath || appCtx.uid || 'dylj';
-        
-        const upg = request.headers.get('Upgrade');
-        const url = new URL(request.url);
-        const contentType = request.headers.get('content-type') || '';
-        const proxyCtx = await getRequestProxyConfig(request, appCtx);
-
-        if (upg && upg.toLowerCase() === 'websocket') {
-            return await handleWSRequest(request, appCtx.uid, url, proxyCtx, appCtx);
-        } else if (contentType.startsWith('application/grpc')) {
-            return await handleGRPCRequest(request, appCtx.uid, proxyCtx, appCtx);
-        } else if (request.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${appCtx.klp}` && url.pathname !== '/init' && url.pathname !== '/zxyx' && url.pathname !== '/test-proxy' && url.pathname !== '/api/usage') {
-            return await handleXHTTPRequest(request, appCtx.uid, proxyCtx, appCtx);
-        }
-
-        const pathname = url.pathname;
-        if (pathname === '/') {
-            const token = getSessionCookie(request.headers.get('Cookie'));
-            const sessionResult = await validateAndRefreshSession(env, token);
-            if (sessionResult.valid) {
-                const host = request.headers.get('Host');
-                const response = await getMainPageContent(host, `https://${host}`, appCtx.uid, appCtx);
-                if (sessionResult.refreshed) response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
-                return response;
-            } else {
-                const pw = await gP(env); const u = await gU(env);
-                if (!pw || !u) return getInitPage(request.headers.get('Host'), `https://${request.headers.get('Host')}`, true);
-                if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(request); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-                return getPoemPage();
-            }
-        }
-
-        if (pathname === `/${appCtx.klp}`) return await handleLogin(request, env, appCtx);
-        switch (pathname) {
-            case `/${currentP}`: return await sub(request, appCtx);
-            case '/info': return await requireAuth(request, env, appCtx, () => ResponseBuilder.json(request.cf));
-            case '/connect': return await requireAuth(request, env, appCtx, handleConnectTest);
-            case '/test-dns': return await requireAuth(request, env, appCtx, handleDNSTest);
-            case '/test-config': return await requireAuth(request, env, appCtx, handleConfigTest);
-            case '/test-failover': return await requireAuth(request, env, appCtx, handleFailoverTest);
-            case '/test-proxy': return await requireAuth(request, env, appCtx, handleProxyTest);
-            case '/admin/save': return await handleAdminSave(request, env, appCtx);
-            case '/admin': return await requireAuth(request, env, appCtx, getAdminPage);
-            case '/init': return await handleInit(request, env, appCtx);
-            case '/zxyx': return await requireAuth(request, env, appCtx, zxyx);
-            case '/logout': return await handleLogout(request, env);
-            case '/api/usage': return await requireAuth(request, env, appCtx, async()=> ResponseBuilder.json(await getCloudflareUsageAPI(env, appCtx)));
-        }
-
-        if (pathname === `/${appCtx.uid}`) return await sub(request, appCtx);
-
-        if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(request); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-        return getPoemPage();
-    } catch (err) {
-        return ErrorHandler.internalError();
-    }
-}
-
-export default {
-    async fetch(request, env, ctx) {
-        return await coreHandler(request, env, ctx);
-    }
-};
-
-export async function onRequest(context) {
-    return await coreHandler(context.request, context.env, context);
 }
