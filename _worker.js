@@ -21,6 +21,8 @@ let lastUsageTime = 0;
 let cachedAdminPwd = null;
 const FAILED_IP_CACHE = new Map();
 const FAILED_TTL = 10 * 60 * 1000;
+const DIRECT_FAIL_CACHE = new Map();
+const DIRECT_FAIL_TTL = 30 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let cachedTrojanHash = null;
 let cachedTrojanPwd = null;
@@ -331,85 +333,19 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
 
 async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
-        const typeMap = { 'A': 1, 'NS': 2, 'CNAME': 5, 'MX': 15, 'TXT': 16, 'AAAA': 28, 'SRV': 33, 'HTTPS': 65 };
-        const qtype = typeMap[type.toUpperCase()] || 1;
-        const encodeDomain = (name) => {
-            const parts = name.endsWith('.') ? name.slice(0, -1).split('.') : name.split('.');
-            const bufs = [];
-            for (const label of parts) {
-                const enc = new TextEncoder().encode(label);
-                bufs.push(new Uint8Array([enc.length]), enc);
-            }
-            bufs.push(new Uint8Array([0]));
-            const total = bufs.reduce((s, b) => s + b.length, 0);
-            const result = new Uint8Array(total);
-            let off = 0;
-            for (const b of bufs) { result.set(b, off); off += b.length }
-            return result;
-        };
-        const qname = encodeDomain(domain);
-        const query = new Uint8Array(12 + qname.length + 4);
-        const qview = new DataView(query.buffer);
-        qview.setUint16(0, 0); qview.setUint16(2, 0x0100); qview.setUint16(4, 1);
-        query.set(qname, 12);
-        qview.setUint16(12 + qname.length, qtype); qview.setUint16(12 + qname.length + 2, 1);
-        const response = await fetch(doh, { method: 'POST', headers: { 'Content-Type': 'application/dns-message', 'Accept': 'application/dns-message' }, body: query });
-        if (!response.ok) return [];
-        const buf = new Uint8Array(await response.arrayBuffer());
-        const dv = new DataView(buf.buffer);
-        const qdcount = dv.getUint16(4); const ancount = dv.getUint16(6);
-        const parseDomain = (pos) => {
-            const labels = [];
-            let p = pos, jumped = false, endPos = -1, safe = 128;
-            while (p < buf.length && safe-- > 0) {
-                const len = buf[p];
-                if (len === 0) { if (!jumped) endPos = p + 1; break; }
-                if ((len & 0xC0) === 0xC0) {
-                    if (!jumped) endPos = p + 2;
-                    p = ((len & 0x3F) << 8) | buf[p + 1];
-                    jumped = true; continue;
-                }
-                labels.push(new TextDecoder().decode(buf.slice(p + 1, p + 1 + len)));
-                p += len + 1;
-            }
-            if (endPos === -1) endPos = p + 1;
-            return [labels.join('.'), endPos];
-        };
-        let offset = 12;
-        for (let i = 0; i < qdcount; i++) {
-            const [, end] = parseDomain(offset);
-            offset = end + 4;
+        let url = doh;
+        if (!url.includes('?')) url += '?'; else url += '&';
+        url += `name=${domain}&type=${type}`;
+        const res = await fetch(url, { headers: { 'Accept': 'application/dns-json' } });
+        if (!res.ok) {
+            const fallback = `https://cloudflare-dns.com/dns-query?name=${domain}&type=${type}`;
+            const res2 = await fetch(fallback, { headers: { 'Accept': 'application/dns-json' } });
+            if (!res2.ok) return [];
+            const data2 = await res2.json();
+            return (data2.Status === 0 && data2.Answer) ? data2.Answer : [];
         }
-        const answers = [];
-        for (let i = 0; i < ancount && offset < buf.length; i++) {
-            const [name, nameEnd] = parseDomain(offset);
-            offset = nameEnd;
-            const rtype = dv.getUint16(offset); offset += 2; offset += 2;
-            const ttl = dv.getUint32(offset); offset += 4;
-            const rdlen = dv.getUint16(offset); offset += 2;
-            const rdata = buf.slice(offset, offset + rdlen);
-            offset += rdlen;
-            let data;
-            if (rtype === 1 && rdlen === 4) data = `${rdata[0]}.${rdata[1]}.${rdata[2]}.${rdata[3]}`;
-            else if (rtype === 28 && rdlen === 16) {
-                const segs = [];
-                for (let j = 0; j < 16; j += 2) segs.push(((rdata[j] << 8) | rdata[j + 1]).toString(16));
-                data = segs.join(':');
-            } else if (rtype === 16) {
-                let tOff = 0; const parts = [];
-                while (tOff < rdlen) {
-                    const tLen = rdata[tOff++];
-                    parts.push(new TextDecoder().decode(rdata.slice(tOff, tOff + tLen)));
-                    tOff += tLen;
-                }
-                data = parts.join('');
-            } else if (rtype === 5) {
-                const [cname] = parseDomain(offset - rdlen);
-                data = cname;
-            } else data = Array.from(rdata).map(b => b.toString(16).padStart(2, '0')).join('');
-            answers.push({ name, type: rtype, TTL: ttl, data, rdata });
-        }
-        return answers;
+        const data = await res.json();
+        return (data.Status === 0 && data.Answer) ? data.Answer : [];
     } catch (e) { return []; }
 }
 
@@ -418,20 +354,9 @@ async function getECH(host) {
         const answers = await DoH查询(host, 'HTTPS');
         if (!answers.length) return '';
         for (const ans of answers) {
-            if (ans.type !== 65 || !ans.rdata) continue;
-            const bytes = ans.rdata;
-            let offset = 2;
-            while (offset < bytes.length) {
-                const len = bytes[offset];
-                if (len === 0) { offset++; break; }
-                offset += len + 1;
-            }
-            while (offset + 4 <= bytes.length) {
-                const key = (bytes[offset] << 8) | bytes[offset + 1];
-                const len = (bytes[offset + 2] << 8) | bytes[offset + 3];
-                offset += 4;
-                if (key === 5) return btoa(String.fromCharCode(...bytes.slice(offset, offset + len)));
-                offset += len;
+            if (ans.type === 65 && ans.data) {
+                const match = ans.data.match(/ech="([^"]+)"/);
+                if (match) return match[1];
             }
         }
         return '';
@@ -461,10 +386,6 @@ async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
                 try {
                     let txtRecords = await DoH查询(sip, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
-                    if (txtData.length === 0) {
-                        txtRecords = await DoH查询(sip, 'TXT', 'https://dns.google/dns-query');
-                        txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
-                    }
                     if (txtData.length > 0) {
                         let data = txtData[0];
                         if (data.startsWith('"') && data.endsWith('"')) data = data.slice(1, -1);
@@ -485,12 +406,6 @@ async function resolveAddressAndPort(proxyIP, targetHost, UUID) {
                     let ipv4List = aRecords.filter(r => r.type === 1).map(r => r.data);
                     let ipv6List = aaaaRecords.filter(r => r.type === 28).map(r => `[${r.data}]`);
                     let ipAddresses = [...ipv4List, ...ipv6List];
-                    if (ipAddresses.length === 0) {
-                        [aRecords, aaaaRecords] = await Promise.all([DoH查询(addr, 'A', 'https://dns.google/dns-query'), DoH查询(addr, 'AAAA', 'https://dns.google/dns-query')]);
-                        ipv4List = aRecords.filter(r => r.type === 1).map(r => r.data);
-                        ipv6List = aaaaRecords.filter(r => r.type === 28).map(r => `[${r.data}]`);
-                        ipAddresses = [...ipv4List, ...ipv6List];
-                    }
                     if (ipAddresses.length > 0) allArr.push(...ipAddresses.map(ip => [ip, port]));
                     else allArr.push([addr, port]);
                 } else {
@@ -560,7 +475,7 @@ if (FAILED_IP_CACHE.size > 500) {
             }
         }
     }
-    throw new Error(`所有节点连接失败`);
+    throw new Error(`Connect failed`);
 }
 
 function safeCloseWebSocket(socket) { try { if (socket.readyState === 1 || socket.readyState === 2) socket.close(); } catch (e) { } }
@@ -605,7 +520,11 @@ function formatIdentifier(arr, offset = 0) {
 }
 
 function 解析木马请求(buffer, passwordPlainText) {
-	const sha224Password = sha224(passwordPlainText);
+    if (cachedTrojanPwd !== passwordPlainText || !cachedTrojanHash) {
+        cachedTrojanHash = sha224(passwordPlainText);
+        cachedTrojanPwd = passwordPlainText;
+    }
+    const sha224Password = cachedTrojanHash;
 	if (buffer.byteLength < 56) return { hasError: true, message: "invalid data" };
 	let crLfIndex = 56;
 	if (new Uint8Array(buffer.slice(56, 57))[0] !== 0x0d || new Uint8Array(buffer.slice(57, 58))[0] !== 0x0a) return { hasError: true, message: "invalid header format" };
@@ -723,13 +642,13 @@ async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = fa
 		let responseBuffer = new Uint8Array(0), headerEndIndex = -1, bytesRead = 0;
 		while (headerEndIndex === -1 && bytesRead < 8192) {
 			const { done, value } = await reader.read();
-			if (done || !value) throw new Error(`HTTP 代理在返回 CONNECT 响应前关闭连接`);
+			if (done || !value) throw new Error(`HTTP proxy closed early`);
 			responseBuffer = new Uint8Array([...responseBuffer, ...value]);
 			bytesRead = responseBuffer.length;
 			const crlfcrlf = responseBuffer.findIndex((_, i) => i < responseBuffer.length - 3 && responseBuffer[i] === 0x0d && responseBuffer[i + 1] === 0x0a && responseBuffer[i + 2] === 0x0d && responseBuffer[i + 3] === 0x0a);
 			if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
 		}
-		if (headerEndIndex === -1) throw new Error('代理 CONNECT 响应头无效');
+		if (headerEndIndex === -1) throw new Error('HTTP proxy response invalid');
 		const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split('\r\n')[0].match(/HTTP\/\d\.\d\s+(\d+)/);
 		const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
 		if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
@@ -799,18 +718,30 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 
     const establish3LayerConnection = async (data) => {
         let sock = null;
+        const now = Date.now();
+        if (DIRECT_FAIL_CACHE.has(host) && (now - DIRECT_FAIL_CACHE.get(host) > DIRECT_FAIL_TTL)) {
+            DIRECT_FAIL_CACHE.delete(host);
+        }
+
         if (proxyEnabled && proxyGlobal) {
             sock = await tryProxy(data);
             if (!sock) sock = await tryDirect(data);
         } else {
+            if (proxyEnabled && DIRECT_FAIL_CACHE.has(host)) {
+                sock = await tryProxy(data);
+                if (sock) return sock;
+            }
             sock = await tryDirect(data);
-            if (!sock && proxyEnabled) sock = await tryProxy(data);
+            if (!sock) {
+                DIRECT_FAIL_CACHE.set(host, now);
+                if (proxyEnabled) sock = await tryProxy(data);
+            }
         }
         if (!sock) {
             sock = await tryReverseFDC(data);
         }
         if (!sock) {
-            throw new Error(`连接失败: 直连/代理/反代三层均不可用. 目标: ${host}:${portNum}`);
+            throw new Error(`Connect failed: ${host}:${portNum}`);
         }
         return sock;
     };
