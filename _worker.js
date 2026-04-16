@@ -1,15 +1,5 @@
 import { connect } from 'cloudflare:sockets';
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const REGEX_CLASH_MODE = /mode:\s*Rule\b/g;
-const REGEX_GRPC_NET = /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi;
-const REGEX_CLASH_TYPE = /type:\s*(\w+)/;
-const REGEX_IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-const REGEX_HTTP_STATUS = /HTTP\/\d\.\d\s+(\d+)/;
-const REGEX_SOCKS_URL = /\/(socks5?|https?):\/?\/?(.+)/i;
-const REGEX_SOCKS_URL_PARAM = /\/(g?s5|socks5|g?https?)=(.+)/i;
-const REGEX_BASE64 = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
-
 let p = 'dylj';
 let fdc = [''];
 let uid = '';
@@ -33,11 +23,9 @@ const FAILED_IP_CACHE = new Map();
 const FAILED_TTL = 10 * 60 * 1000;
 const DIRECT_FAIL_CACHE = new Map();
 const DIRECT_FAIL_TTL = 30 * 60 * 1000;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let cachedTrojanHash = null;
 let cachedTrojanPwd = null;
-let expectedTrojanHashBytes = null;
-let expectedXhttpTrojanPwd = null;
-let expectedXhttpTrojanBytes = null;
 let cachedProxyIPList = [];
 let cachedProxyIP = '';
 
@@ -252,11 +240,10 @@ async function handleLogin(req, env) {
     const passwordChanged = url.searchParams.get('password_changed') === 'true';
     const clientIp = req.headers.get('CF-Connecting-IP') || 'unknown';
     const now = Date.now();
-    const existingAttempt = loginAttempts.get(clientIp);
-    if (existingAttempt && (now - existingAttempt.time > 60000)) {
-        loginAttempts.delete(clientIp);
+    for (const [ip, data] of loginAttempts) {
+        if (now - data.time > 60000) loginAttempts.delete(ip);
     }
-    if (loginAttempts.size > 1000) loginAttempts.clear();
+    if (loginAttempts.size > 1000) loginAttempts.delete(loginAttempts.keys().next().value);
     const attempt = loginAttempts.get(clientIp) || { count: 0, time: 0 };
     if (attempt.count > 5 && (now - attempt.time) < 60000) return ResponseBuilder.text('尝试次数过多，请稍后再试', 429);
     if (req.method === 'POST') {
@@ -315,13 +302,13 @@ async function optimizeConfigLoading(env, ctx) {
         }
     };
     if (cc && (now - ct) < STALE_CD && ctx) {
-        ctx.waitUntil(loadConfigTask().catch(() => {}));
+        ctx.waitUntil(loadConfigTask().catch(console.error));
         return cc;
     }
     return await loadConfigTask();
 }
 
-async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null, ctx = null) {
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
@@ -333,11 +320,7 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
     if (u) ps.push(kv.put(KU, u));
     if (klp) ps.push(kv.put(KP, await gP(env)));
-    if (ctx) {
-        ctx.waitUntil(Promise.all(ps));
-    } else {
-        await Promise.all(ps);
-    }
+    await Promise.all(ps);
     const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
     cc = {
         ...unifiedConfig, timestamp: Date.now(),
@@ -348,34 +331,27 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     return true;
 }
 
-async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query', ctx = null) {
+async function DoH查询(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         let url = doh;
-        url += (url.includes('?') ? '&' : '?') + `name=${domain}&type=${type}`;
-        const cache = caches.default;
-        const cacheReq = new Request(url, { headers: { 'Accept': 'application/dns-json' } });
-        let res = await cache.match(cacheReq);
-        if (!res) {
-            res = await fetch(cacheReq);
-            if (!res.ok) {
-                const fallback = `https://cloudflare-dns.com/dns-query?name=${domain}&type=${type}`;
-                res = await fetch(fallback, { headers: { 'Accept': 'application/dns-json' } });
-                if (!res.ok) return [];
-            }
-            if (res.ok && ctx) {
-                const cacheRes = new Response(res.clone().body, res);
-                cacheRes.headers.set('Cache-Control', 'public, max-age=300');
-                ctx.waitUntil(cache.put(cacheReq, cacheRes));
-            }
+        if (!url.includes('?')) url += '?'; else url += '&';
+        url += `name=${domain}&type=${type}`;
+        const res = await fetch(url, { headers: { 'Accept': 'application/dns-json' } });
+        if (!res.ok) {
+            const fallback = `https://cloudflare-dns.com/dns-query?name=${domain}&type=${type}`;
+            const res2 = await fetch(fallback, { headers: { 'Accept': 'application/dns-json' } });
+            if (!res2.ok) return [];
+            const data2 = await res2.json();
+            return (data2.Status === 0 && data2.Answer) ? data2.Answer : [];
         }
         const data = await res.json();
         return (data.Status === 0 && data.Answer) ? data.Answer : [];
     } catch (e) { return []; }
 }
 
-async function getECH(host, ctx = null) {
+async function getECH(host) {
     try {
-        const answers = await DoH查询(host, 'HTTPS', undefined, ctx);
+        const answers = await DoH查询(host, 'HTTPS');
         if (!answers.length) return '';
         for (const ans of answers) {
             if (ans.type === 65 && ans.data) {
@@ -387,7 +363,7 @@ async function getECH(host, ctx = null) {
     } catch { return ''; }
 }
 
-async function resolveAddressAndPort(proxyIPStr, targetHost, UUID, ctx = null) {
+async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
     if (!cachedProxyIPList || cachedProxyIPList.length === 0 || cachedProxyIP !== proxyIPStr) {
         const ipArr = proxyIPStr.split(',').map(s => s.trim()).filter(Boolean);
         let finalTargets = [];
@@ -410,7 +386,7 @@ async function resolveAddressAndPort(proxyIPStr, targetHost, UUID, ctx = null) {
             }
             if (addr.includes('.william')) {
                 try {
-                    let txtRecords = await DoH查询(addr, 'TXT', undefined, ctx);
+                    let txtRecords = await DoH查询(addr, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
                     if (txtData.length > 0) {
                         let data = txtData[0];
@@ -459,19 +435,20 @@ async function connectWithTimeout(host, port, timeoutMs) {
     }
 }
 
-async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443, proxyCtx = null) {
+async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
     let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
-    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid, proxyCtx?.ctx);
+    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
     if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
     const PRIMARY_TIMEOUT = 3000, BACKUP_TIMEOUT = 2000;
     const now = Date.now();
+    for (const [ip, time] of FAILED_IP_CACHE) {
+        if (now - time > FAILED_TTL) FAILED_IP_CACHE.delete(ip);
+    }
     if (FAILED_IP_CACHE.size > 500) FAILED_IP_CACHE.clear();
     for (let i = 0; i < resolvedList.length; i++) {
         const [hostname, port] = resolvedList[i];
         const cacheKey = `${hostname}:${port}`;
-        const failTime = FAILED_IP_CACHE.get(cacheKey);
-        if (failTime && (now - failTime > FAILED_TTL)) FAILED_IP_CACHE.delete(cacheKey);
         if (!FAILED_IP_CACHE.has(cacheKey)) {
              try {
                 const socket = await connectWithTimeout(hostname, port, i === 0 ? PRIMARY_TIMEOUT : BACKUP_TIMEOUT);
@@ -526,18 +503,16 @@ function formatIdentifier(arr, offset = 0) {
 }
 
 function 解析木马请求(buffer, passwordPlainText) {
-    if (cachedTrojanPwd !== passwordPlainText || !expectedTrojanHashBytes) {
+    if (cachedTrojanPwd !== passwordPlainText || !cachedTrojanHash) {
         cachedTrojanHash = sha224(passwordPlainText);
         cachedTrojanPwd = passwordPlainText;
-        expectedTrojanHashBytes = new TextEncoder().encode(cachedTrojanHash);
     }
+    const sha224Password = cachedTrojanHash;
 	if (buffer.byteLength < 56) return { hasError: true, message: "invalid data" };
 	let crLfIndex = 56;
 	if (new Uint8Array(buffer.slice(56, 57))[0] !== 0x0d || new Uint8Array(buffer.slice(57, 58))[0] !== 0x0a) return { hasError: true, message: "invalid header format" };
-    const reqBytes = new Uint8Array(buffer.slice(0, 56));
-    for (let i = 0; i < 56; i++) {
-        if (reqBytes[i] !== expectedTrojanHashBytes[i]) return { hasError: true, message: "invalid password" };
-    }
+	const password = new TextDecoder().decode(buffer.slice(0, crLfIndex));
+	if (password !== sha224Password) return { hasError: true, message: "invalid password" };
 	const socks5DataBuffer = buffer.slice(crLfIndex + 2);
 	if (socks5DataBuffer.byteLength < 6) return { hasError: true, message: "invalid S5 request data" };
 	const view = new DataView(socks5DataBuffer);
@@ -657,7 +632,7 @@ async function httpConnect(targetHost, targetPort, initialData, HTTPS代理 = fa
 			if (crlfcrlf !== -1) headerEndIndex = crlfcrlf + 4;
 		}
 		if (headerEndIndex === -1) throw new Error('HTTP proxy response invalid');
-		const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split('\r\n')[0].match(REGEX_HTTP_STATUS);
+		const statusMatch = decoder.decode(responseBuffer.slice(0, headerEndIndex)).split('\r\n')[0].match(/HTTP\/\d\.\d\s+(\d+)/);
 		const statusCode = statusMatch ? parseInt(statusMatch[1], 10) : NaN;
 		if (!Number.isFinite(statusCode) || statusCode < 200 || statusCode >= 300) throw new Error(`Connection failed: HTTP ${statusCode}`);
 		reader.releaseLock();
@@ -714,7 +689,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 
     const tryReverseFDC = async (data) => {
         try {
-            const { socket } = await universalConnectWithFailover(host, portNum, proxyCtx);
+            const { socket } = await universalConnectWithFailover();
             if (data && data.byteLength > 0) {
                 const w = socket.writable.getWriter();
                 await w.write(data);
@@ -727,8 +702,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     const establish3LayerConnection = async (data) => {
         let sock = null;
         const now = Date.now();
-        const failTime = DIRECT_FAIL_CACHE.get(host);
-        if (failTime && (now - failTime > DIRECT_FAIL_TTL)) {
+        if (DIRECT_FAIL_CACHE.has(host) && (now - DIRECT_FAIL_CACHE.get(host) > DIRECT_FAIL_TTL)) {
             DIRECT_FAIL_CACHE.delete(host);
         }
 
@@ -756,7 +730,8 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     };
 
     if (remoteConnWrapper.connectingPromise) {
-        return remoteConnWrapper.connectingPromise;
+        await remoteConnWrapper.connectingPromise;
+        return;
     }
 
     const connectTask = (async () => {
@@ -767,7 +742,7 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
         connectStreams(newSocket, ws, respHeader, async () => {
             if (remoteConnWrapper.socket !== newSocket) return;
             if (typeof remoteConnWrapper.retryConnect === 'function') {
-                return remoteConnWrapper.retryConnect();
+                await remoteConnWrapper.retryConnect();
             }
         });
     })();
@@ -775,7 +750,8 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
     remoteConnWrapper.connectingPromise = connectTask;
     remoteConnWrapper.retryConnect = async () => {
         if (remoteConnWrapper.connectingPromise) {
-            return remoteConnWrapper.connectingPromise;
+            await remoteConnWrapper.connectingPromise;
+            return;
         }
         const retryTask = (async () => {
             const newSocket = await establish3LayerConnection(null);
@@ -1035,11 +1011,8 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 
 async function 读取XHTTP首包(reader, token) {
 	const decoder = new TextDecoder();
-    const currentPwd = tp || token;
-    if (expectedXhttpTrojanPwd !== currentPwd || !expectedXhttpTrojanBytes) {
-        expectedXhttpTrojanPwd = currentPwd;
-        expectedXhttpTrojanBytes = new TextEncoder().encode(sha224(currentPwd));
-    }
+	const 密码哈希 = sha224(tp || token);
+	const 密码哈希字节 = new TextEncoder().encode(密码哈希);
 	const 尝试解析VLESS首包 = (data) => {
 		const length = data.byteLength;
 		if (length < 18) return { 状态: 'need_more' };
@@ -1061,7 +1034,7 @@ async function 读取XHTTP首包(reader, token) {
 		const length = data.byteLength;
 		if (length < 58) return { 状态: 'need_more' };
 		if (data[56] !== 0x0d || data[57] !== 0x0a) return { 状态: 'invalid' };
-		for (let i = 0; i < 56; i++) { if (data[i] !== expectedXhttpTrojanBytes[i]) return { 状态: 'invalid' }; }
+		for (let i = 0; i < 56; i++) { if (data[i] !== 密码哈希字节[i]) return { 状态: 'invalid' }; }
 		const socksStart = 58; if (length < socksStart + 2) return { 状态: 'need_more' };
 		const cmd = data[socksStart]; if (cmd !== 1) return { 状态: 'invalid' };
 		const atype = data[socksStart + 1]; let cursor = socksStart + 2, hostname = '';
@@ -1152,15 +1125,15 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON)
 	const gRPCUserAgent = "Mozilla/5.0";
 	const 需要处理gRPC = config_JSON.transConfig?.grpc;
 	const gRPCUserAgentYAML = JSON.stringify(gRPCUserAgent);
-	let clash_yaml = Clash_原始订阅内容.replace(REGEX_CLASH_MODE, 'mode: rule');
+	let clash_yaml = Clash_原始订阅内容.replace(/mode:\s*Rule\b/g, 'mode: rule');
 	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
 	const 添加InlineGrpcUserAgent = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
 		if (/grpc-user-agent\s*:/i.test(inner)) return all;
 		let content = inner.trim(); if (content.endsWith(',')) content = content.slice(0, -1).trim();
 		return `grpc-opts: {${content ? `${content}, grpc-user-agent: ${gRPCUserAgentYAML}` : `grpc-user-agent: ${gRPCUserAgentYAML}`}}`;
 	});
-	const 匹配到gRPC网络 = (text) => REGEX_GRPC_NET.test(text);
-	const 获取代理类型 = (nodeText) => nodeText.match(REGEX_CLASH_TYPE)?.[1] || 'vless';
+	const 匹配到gRPC网络 = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
+	const 获取代理类型 = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
 	const 获取凭据值 = (nodeText, isFlowStyle) => {
 		const credentialField = 获取代理类型(nodeText) === 'trojan' ? 'password' : 'uuid';
 		const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
@@ -1253,11 +1226,11 @@ function Clash订阅配置文件热补丁(Clash_原始订阅内容, config_JSON)
 	return processedLines.join('\n');
 }
 
-async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, config_JSON, ctx = null) {
+async function Singbox订阅配置文件热补丁(SingBox_原始订阅内容, config_JSON) {
 	const uuid = config_JSON.uid;
 	const fingerprint = "chrome";
 	const ECH_SNI = config_JSON.transConfig?.ech_sni || config_JSON.host || null;
-	const ech_config = config_JSON.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI, ctx) : null;
+	const ech_config = config_JSON.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI) : null;
 	const sb_json_text = SingBox_原始订阅内容.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
 	try {
 		let config = JSON.parse(sb_json_text);
@@ -1400,7 +1373,7 @@ function genConfig(u, url) {
     return links.join('\n');
 }
 
-async function sub(req, ctx) {
+async function sub(req) {
     const url = new URL(req.url);
     const host = req.headers.get('Host');
     const format = url.searchParams.get('format') || url.searchParams.get('target');
@@ -1417,7 +1390,7 @@ async function sub(req, ctx) {
             if (res.ok) {
                 let content = await res.text();
                 if (target === 'clash') content = Clash订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig });
-                if (target === 'singbox') content = await Singbox订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig }, ctx);
+                if (target === 'singbox') content = await Singbox订阅配置文件热补丁(content, { uid, host, transConfig: cc?.transConfig });
                 return ResponseBuilder.text(content);
             }
         } catch(e) {}
@@ -1438,7 +1411,7 @@ async function getRequestProxyConfig(request, config) {
     let tempAccount = searchParams.get('socks5') || searchParams.get('http') || searchParams.get('https') || proxyCtx.account;
     if (searchParams.has('globalproxy')) proxyCtx.global = true;
     let socksMatch;
-    if ((socksMatch = pathname.match(REGEX_SOCKS_URL))) {
+    if ((socksMatch = pathname.match(/\/(socks5?|https?):\/?\/?(.+)/i))) {
         const typeStr = socksMatch[1].toLowerCase();
         proxyCtx.enableType = typeStr.includes('https') ? 'https' : (typeStr.includes('http') ? 'http' : 'socks5');
         tempAccount = socksMatch[2].split('#')[0];
@@ -1446,12 +1419,12 @@ async function getRequestProxyConfig(request, config) {
         if (tempAccount.includes('@')) {
             const atIndex = tempAccount.lastIndexOf('@');
             let userPassword = tempAccount.substring(0, atIndex).replaceAll('%3D', '=');
-            if (REGEX_BASE64.test(userPassword) && !userPassword.includes(':')) {
+            if (/^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i.test(userPassword) && !userPassword.includes(':')) {
                 userPassword = atob(userPassword);
             }
             tempAccount = `${userPassword}@${tempAccount.substring(atIndex + 1)}`;
         }
-    } else if ((socksMatch = pathname.match(REGEX_SOCKS_URL_PARAM))) {
+    } else if ((socksMatch = pathname.match(/\/(g?s5|socks5|g?https?)=(.+)/i))) {
         const type = socksMatch[1].toLowerCase();
         tempAccount = socksMatch[2];
         proxyCtx.enableType = type.includes('https') ? 'https' : (type.includes('http') ? 'http' : 'socks5');
@@ -1476,7 +1449,8 @@ async function 获取SOCKS5账号(address) {
     if (address.includes('@')) {
         const lastAtIndex = address.lastIndexOf('@');
         let userPassword = address.substring(0, lastAtIndex).replaceAll('%3D', '=');
-        if (REGEX_BASE64.test(userPassword) && !userPassword.includes(':')) {
+        const base64Regex = /^(?:[A-Z0-9+/]{4})*(?:[A-Z0-9+/]{2}==|[A-Z0-9+/]{3}=)?$/i;
+        if (base64Regex.test(userPassword) && !userPassword.includes(':')) {
             try { userPassword = atob(userPassword); } catch (e) {}
         }
         address = `${userPassword}@${address.substring(lastAtIndex + 1)}`;
@@ -1605,7 +1579,6 @@ export default {
             const url = new URL(req.url);
             const contentType = req.headers.get('content-type') || '';
             const proxyCtx = await getRequestProxyConfig(req, config);
-            proxyCtx.ctx = ctx;
 
             if (upg && upg.toLowerCase() === 'websocket') {
                 return await handleWSRequest(req, uid, url, proxyCtx);
@@ -1634,22 +1607,22 @@ export default {
 
             if (pathname === `/${loginPath}`) return await handleLogin(req, env);
             switch (pathname) {
-                case `/${p}`: return await sub(req, ctx);
+                case `/${p}`: return await sub(req);
                 case '/info': return await requireAuth(req, env, () => ResponseBuilder.json(req.cf));
-                case '/connect': return await requireAuth(req, env, r => handleConnectTest(r, env, ctx));
-                case '/test-dns': return await requireAuth(req, env, r => handleDNSTest(r, env, ctx));
+                case '/connect': return await requireAuth(req, env, handleConnectTest);
+                case '/test-dns': return await requireAuth(req, env, handleDNSTest);
                 case '/test-config': return await requireAuth(req, env, handleConfigTest);
                 case '/test-failover': return await requireAuth(req, env, handleFailoverTest);
                 case '/test-proxy': return await requireAuth(req, env, handleProxyTest);
-                case '/admin/save': return await handleAdminSave(req, env, ctx);
+                case '/admin/save': return await handleAdminSave(req, env);
                 case '/admin': return await requireAuth(req, env, getAdminPage);
-                case '/init': return await handleInit(req, env, ctx);
-                case '/zxyx': return await requireAuth(req, env, (r, e) => zxyx(r, e, ctx));
+                case '/init': return await handleInit(req, env);
+                case '/zxyx': return await requireAuth(req, env, zxyx);
                 case '/logout': return await handleLogout(req, env);
                 case '/api/usage': return await requireAuth(req, env, async()=> ResponseBuilder.json(await getCloudflareUsageAPI(env)));
             }
 
-            if (pathname === `/${uid}`) return await sub(req, ctx);
+            if (pathname === `/${uid}`) return await sub(req);
 
             if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
             return getPoemPage();
@@ -1759,7 +1732,7 @@ function validateForm(e) {
     return ResponseBuilder.html(html);
 }
 
-async function handleInit(req, env, ctx) {
+async function handleInit(req, env) {
     const host = req.headers.get('Host');
     const base = `https://${host}`;
     if (req.method !== 'POST') return getInitPage(host, base, true);
@@ -1772,7 +1745,7 @@ async function handleInit(req, env, ctx) {
     if (!UUIDUtils.isValidUUID(uuid)) return ResponseBuilder.html('UUID无效', 400);
     await sP(env, password);
     await sU(env, uuid);
-    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath, null, null, null, null, null, ctx);
+    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath);
     uid = uuid;
     const newToken = await signToken(env, Date.now() + SESSION_DURATION);
     return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
@@ -1947,7 +1920,7 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
     return ResponseBuilder.html(html);
 }
 
-async function handleAdminSave(req, env, ctx) {
+async function handleAdminSave(req, env) {
     try {
         const token = getSessionCookie(req.headers.get('Cookie'));
         const sessionResult = await validateAndRefreshSession(env, token);
@@ -1999,7 +1972,7 @@ async function handleAdminSave(req, env, ctx) {
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
         const transCfg = { grpc, xhttp, ech, ech_sni };
-        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg, ctx);
+        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg);
         yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns;
         if (u) uid = u;
         ev = protocolEv; et = protocolEt; tp = protocolTp;
@@ -2346,15 +2319,15 @@ async function saveConfig(e) {
     return ResponseBuilder.html(html);
 }
 
-async function handleConnectTest(req, env, ctx) {
+async function handleConnectTest(req, env) {
     try {
-        const { socket, server } = await universalConnectWithFailover('www.google.com', 443, { ctx });
+        const { socket, server } = await universalConnectWithFailover();
         socket.close();
         return ResponseBuilder.json({ success: true, message: `成功连接到 ${server.original}`, server: server });
     } catch (e) { return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` }, 500); }
 }
 
-async function handleDNSTest(req, env, ctx) {
+async function handleDNSTest(req, env) {
     try {
         const res = await fetch(dns, { method: 'POST', headers: { 'content-type': 'application/dns-message' }, body: new Uint8Array([0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]) });
         const ans = await res.arrayBuffer();
@@ -2410,7 +2383,7 @@ async function handleProxyTest(req, env) {
     } catch (e) { return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` }); }
 }
 
-async function zxyx(request, env, ctx, txt = 'ADD.txt') {
+async function zxyx(request, env, txt = 'ADD.txt') {
     const countryCodeToName = {
         'US': '美国', 'SG': '新加坡', 'DE': '德国', 'JP': '日本', 'KR': '韩国',
         'HK': '香港', 'TW': '台湾', 'GB': '英国', 'FR': '法国', 'IN': '印度',
@@ -2427,7 +2400,8 @@ async function zxyx(request, env, ctx, txt = 'ADD.txt') {
     if (!env.SJ) { env.SJ = env.SJ || env.sj; }
     const country = request.cf?.country || 'CN';
     function isValidIP(ip) {
-        const match = ip.match(REGEX_IPV4);
+        const ipRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+        const match = ip.match(ipRegex);
         if (!match) return false;
         for (let i = 1; i <= 4; i++) { const num = parseInt(match[i]); if (num < 0 || num > 255) return false; }
         return true;
@@ -2437,7 +2411,8 @@ async function zxyx(request, env, ctx, txt = 'ADD.txt') {
             const[network, prefixLength] = cidrString.split('/');
             const prefix = parseInt(prefixLength);
             if (isNaN(prefix) || prefix < 8 || prefix > 32) return null;
-            if (!REGEX_IPV4.test(network)) return null;
+            const ipRegex = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+            if (!ipRegex.test(network)) return null;
             const octets = network.split('.').map(Number);
             for (const octet of octets) { if (octet < 0 || octet > 255) return null; }
             return { network: network, prefixLength: prefix, type: 'cidr' };
@@ -2521,16 +2496,14 @@ async function zxyx(request, env, ctx, txt = 'ADD.txt') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
                         currentConfig.yx = uniqueIPList(data.ips);
-                        if (ctx) ctx.waitUntil(env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig)));
-                        else await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
                         yx = currentConfig.yx; cc = { ...currentConfig, yx: currentConfig.yx, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功替换优选IP列表，保存 ${currentConfig.yx.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     } else {
                         const newIPs = uniqueIPList([...currentConfig.yx, ...data.ips]);
                         if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '追加后内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                         currentConfig.yx = newIPs;
-                        if (ctx) ctx.waitUntil(env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig)));
-                        else await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
                         yx = newIPs; cc = { ...currentConfig, yx: newIPs, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功追加优选IP列表，新增 ${data.ips.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     }
@@ -2538,16 +2511,14 @@ async function zxyx(request, env, ctx, txt = 'ADD.txt') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-fd') {
                         currentConfig.fdc = uniqueIPList(data.ips);
-                        if (ctx) ctx.waitUntil(env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig)));
-                        else await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
                         fdc = currentConfig.fdc; cc = { ...currentConfig, fdc: currentConfig.fdc, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功替换反代IP列表，保存 ${currentConfig.fdc.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     } else {
                         const newIPs = uniqueIPList([...currentConfig.fdc, ...data.ips]);
                         if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '追加后内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                         currentConfig.fdc = newIPs;
-                        if (ctx) ctx.waitUntil(env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig)));
-                        else await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
+                        await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
                         fdc = newIPs; cc = { ...currentConfig, fdc: newIPs, ct: Date.now() };
                         return new Response(JSON.stringify({ success: true, message: `成功追加反代IP列表，新增 ${data.ips.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     }
@@ -2556,8 +2527,7 @@ async function zxyx(request, env, ctx, txt = 'ADD.txt') {
                 }
             } else {
                 const content = await request.text();
-                if (ctx) ctx.waitUntil(env.SJ.put(txt, content));
-                else await env.SJ.put(txt, content);
+                await env.SJ.put(txt, content);
                 return new Response("保存成功");
             }
         } catch (error) { return new Response(JSON.stringify({ error: '操作失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } }); }
