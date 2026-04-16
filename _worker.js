@@ -26,6 +26,7 @@ const DIRECT_FAIL_TTL = 30 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 let cachedTrojanHash = null;
 let cachedTrojanPwd = null;
+let expectedTrojanHashBytes = null;
 let cachedProxyIPList = [];
 let cachedProxyIP = '';
 
@@ -503,34 +504,35 @@ function formatIdentifier(arr, offset = 0) {
 }
 
 function 解析木马请求(buffer, passwordPlainText) {
-    if (cachedTrojanPwd !== passwordPlainText || !cachedTrojanHash) {
+    if (cachedTrojanPwd !== passwordPlainText || !expectedTrojanHashBytes) {
         cachedTrojanHash = sha224(passwordPlainText);
         cachedTrojanPwd = passwordPlainText;
+        expectedTrojanHashBytes = new TextEncoder().encode(cachedTrojanHash);
     }
-    const sha224Password = cachedTrojanHash;
-	if (buffer.byteLength < 56) return { hasError: true, message: "invalid data" };
-	let crLfIndex = 56;
-	if (new Uint8Array(buffer.slice(56, 57))[0] !== 0x0d || new Uint8Array(buffer.slice(57, 58))[0] !== 0x0a) return { hasError: true, message: "invalid header format" };
-	const password = new TextDecoder().decode(buffer.slice(0, crLfIndex));
-	if (password !== sha224Password) return { hasError: true, message: "invalid password" };
-	const socks5DataBuffer = buffer.slice(crLfIndex + 2);
-	if (socks5DataBuffer.byteLength < 6) return { hasError: true, message: "invalid S5 request data" };
-	const view = new DataView(socks5DataBuffer);
-	const cmd = view.getUint8(0);
-	if (cmd !== 1) return { hasError: true, message: "unsupported command" };
-	const atype = view.getUint8(1);
-	let addressLength = 0, addressIndex = 2, address = "";
-	switch (atype) {
-		case 1: addressLength = 4; address = new Uint8Array(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)).join("."); break;
-		case 3: addressLength = new Uint8Array(socks5DataBuffer.slice(addressIndex, addressIndex + 1))[0]; addressIndex += 1; address = new TextDecoder().decode(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)); break;
-		case 4: addressLength = 16; const dataView = new DataView(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)); const ipv6 = []; for (let i = 0; i < 8; i++) { ipv6.push(dataView.getUint16(i * 2).toString(16)); } address = ipv6.join(":"); break;
-		default: return { hasError: true, message: `invalid addressType is ${atype}` };
-	}
-	if (!address) return { hasError: true, message: `address is empty` };
-	const portIndex = addressIndex + addressLength;
-	const portBuffer = socks5DataBuffer.slice(portIndex, portIndex + 2);
-	const portRemote = new DataView(portBuffer).getUint16(0);
-	return { hasError: false, addressType: atype, port: portRemote, hostname: address, rawClientData: socks5DataBuffer.slice(portIndex + 4) };
+    if (buffer.byteLength < 58) return { hasError: true, message: "invalid data" };
+    const reqBytes = new Uint8Array(buffer);
+    if (reqBytes[56] !== 0x0d || reqBytes[57] !== 0x0a) return { hasError: true, message: "invalid header format" };
+    for (let i = 0; i < 56; i++) {
+        if (reqBytes[i] !== expectedTrojanHashBytes[i]) return { hasError: true, message: "invalid password" };
+    }
+    const socks5DataBuffer = buffer.slice(58);
+    if (socks5DataBuffer.byteLength < 6) return { hasError: true, message: "invalid S5 request data" };
+    const view = new DataView(socks5DataBuffer);
+    const cmd = view.getUint8(0);
+    if (cmd !== 1) return { hasError: true, message: "unsupported command" };
+    const atype = view.getUint8(1);
+    let addressLength = 0, addressIndex = 2, address = "";
+    switch (atype) {
+        case 1: addressLength = 4; address = new Uint8Array(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)).join("."); break;
+        case 3: addressLength = new Uint8Array(socks5DataBuffer.slice(addressIndex, addressIndex + 1))[0]; addressIndex += 1; address = new TextDecoder().decode(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)); break;
+        case 4: addressLength = 16; const dataView = new DataView(socks5DataBuffer.slice(addressIndex, addressIndex + addressLength)); const ipv6 = []; for (let i = 0; i < 8; i++) { ipv6.push(dataView.getUint16(i * 2).toString(16)); } address = ipv6.join(":"); break;
+        default: return { hasError: true, message: `invalid addressType is ${atype}` };
+    }
+    if (!address) return { hasError: true, message: `address is empty` };
+    const portIndex = addressIndex + addressLength;
+    const portBuffer = socks5DataBuffer.slice(portIndex, portIndex + 2);
+    const portRemote = new DataView(portBuffer).getUint16(0);
+    return { hasError: false, addressType: atype, port: portRemote, hostname: address, rawClientData: socks5DataBuffer.slice(portIndex + 4) };
 }
 
 function 解析魏烈思请求(chunk, token) {
@@ -773,42 +775,29 @@ async function forwardataTCP(host, portNum, rawData, ws, respHeader, remoteConnW
 }
 
 async function connectStreams(remoteSocket, webSocket, headerData, retryFunc) {
-	let header = headerData, hasData = false, reader, useBYOB = false;
-	const 发送块 = async (chunk) => {
-		if (webSocket.readyState !== 1) throw new Error('ws.readyState is not open');
-		if (header) {
-			const merged = new Uint8Array(header.length + chunk.byteLength);
-			merged.set(header, 0); merged.set(chunk, header.length);
-			webSocket.send(merged.buffer);
-			header = null;
-		} else webSocket.send(chunk);
-	};
-	try { reader = remoteSocket.readable.getReader({ mode: 'byob' }); useBYOB = true } catch (e) { reader = remoteSocket.readable.getReader() }
-	try {
-		if (!useBYOB) {
-			while (true) {
-				const { done, value } = await reader.read();
-				if (done) break;
-				if (!value || value.byteLength === 0) continue;
-				hasData = true;
-				await 发送块(value instanceof Uint8Array ? value : new Uint8Array(value));
-			}
-		} else {
-			let mainBuf = new ArrayBuffer(512 * 1024), offset = 0;
-			while (true) {
-				const { done, value } = await reader.read(new Uint8Array(mainBuf, offset, 64 * 1024));
-				if (done) break;
-				if (!value || value.byteLength === 0) continue;
-				hasData = true;
-				mainBuf = value.buffer;
-				const len = value.byteLength;
-				offset += len;
-				if (offset > 0) { const p = new Uint8Array(mainBuf.slice(0, offset)); offset = 0; await 发送块(p); }
-			}
-		}
-	} catch (err) { safeCloseSocket(webSocket) }
-	finally { try { reader.cancel() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
-	if (!hasData && retryFunc) await retryFunc();
+    let hasData = false;
+    let header = headerData;
+    const writable = new WritableStream({
+        write(chunk) {
+            hasData = true;
+            if (webSocket.readyState !== 1) throw new Error('ws.readyState is not open');
+            if (header) {
+                const merged = new Uint8Array(header.length + chunk.byteLength);
+                merged.set(header, 0);
+                merged.set(new Uint8Array(chunk), header.length);
+                webSocket.send(merged.buffer);
+                header = null;
+            } else {
+                webSocket.send(chunk);
+            }
+        }
+    });
+    try {
+        await remoteSocket.readable.pipeTo(writable);
+    } catch (err) {
+        safeCloseSocket(webSocket);
+    }
+    if (!hasData && retryFunc) await retryFunc();
 }
 
 function isSpeedTestSite(hostname) {
@@ -1011,8 +1000,12 @@ async function handleGRPCRequest(request, yourUUID, proxyCtx) {
 
 async function 读取XHTTP首包(reader, token) {
 	const decoder = new TextDecoder();
-	const 密码哈希 = sha224(tp || token);
-	const 密码哈希字节 = new TextEncoder().encode(密码哈希);
+	if (cachedTrojanPwd !== (tp || token) || !expectedTrojanHashBytes) {
+        cachedTrojanHash = sha224(tp || token);
+        cachedTrojanPwd = tp || token;
+        expectedTrojanHashBytes = new TextEncoder().encode(cachedTrojanHash);
+    }
+    const 密码哈希字节 = expectedTrojanHashBytes;
 	const 尝试解析VLESS首包 = (data) => {
 		const length = data.byteLength;
 		if (length < 18) return { 状态: 'need_more' };
