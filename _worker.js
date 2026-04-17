@@ -13,7 +13,7 @@ let cc = null, ct = 0, CD = 60 * 1000;
 const STALE_CD = 60 * 60 * 1000;
 const loginAttempts = new Map();
 const SESSION_DURATION = 8 * 60 * 60 * 1000;
-let ev = true, et = false, tp = '';
+let ev = true, et = false, tp = '', pe = true;
 let protocolConfig = { ev, et, tp };
 let globalTimeout = 8000;
 let cachedUsage = null;
@@ -24,9 +24,9 @@ const FAILED_TTL = 10 * 60 * 1000;
 const DIRECT_FAIL_CACHE = new Map();
 const DIRECT_FAIL_TTL = 30 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-let cachedTjnHash = null;
-let cachedTjnPwd = null;
-let expectedTjnHashBytes = null;
+let cachedTJHash = null;
+let cachedTJPwd = null;
+let expectedTJHashBytes = null;
 let cachedProxyIPList = [];
 let cachedProxyIP = '';
 
@@ -118,7 +118,7 @@ const ConfigUtils = {
         const kv = env.SJ || env.sj;
         const defaultConfig = {
             yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns,
-            ev: true, et: false, tp: '',
+            ev: true, et: false, tp: '', pe: true,
             klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
             cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }
         };
@@ -131,6 +131,7 @@ const ConfigUtils = {
                     yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
                     dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns,
                     ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
+                    pe: unifiedConfig.pe ?? true,
                     cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { ech: false, ech_sni: '' },
                     klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
                 };
@@ -287,14 +288,14 @@ async function optimizeConfigLoading(env, ctx) {
             cc = newConfig;
             ct = now;
             yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns;
-            ev = cc.ev; et = cc.et; tp = cc.tp;
+            ev = cc.ev; et = cc.et; tp = cc.tp; pe = cc.pe ?? true;
             protocolConfig = { ev, et, tp };
             return cc;
         } catch (error) {
             if (cc) return cc;
             return {
                 yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns,
-                ev: ev, et: et, tp: tp,
+                ev: ev, et: et, tp: tp, pe: pe,
                 parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
                 validFDCs: fdc.filter(s => s && s.trim() !== ''),
                 uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
@@ -309,14 +310,14 @@ async function optimizeConfigLoading(env, ctx) {
     return await loadConfigTask();
 }
 
-async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null) {
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null, peVal = true) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
         yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns,
         protocolConfig: protocolCfg || { ev, et, tp },
         cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { ech: false, ech_sni: '' },
-        klp: klp || 'login'
+        klp: klp || 'login', pe: peVal
     };
     const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
     if (u) ps.push(kv.put(KU, u));
@@ -325,14 +326,14 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
     cc = {
         ...unifiedConfig, timestamp: Date.now(),
-        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp,
+        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp, pe: peVal,
         parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fdipArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
     };
     ct = Date.now();
     return true;
 }
 
-async function queryDns(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
+async function queryDoH(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         let url = doh;
         if (!url.includes('?')) url += '?'; else url += '&';
@@ -352,7 +353,7 @@ async function queryDns(domain, type, doh = cc?.dns || 'https://cloudflare-dns.c
 
 async function getECH(host) {
     try {
-        const answers = await queryDns(host, 'HTTPS');
+        const answers = await queryDoH(host, 'HTTPS');
         if (!answers.length) return '';
         for (const ans of answers) {
             if (ans.type === 65 && ans.data) {
@@ -387,7 +388,7 @@ async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
             }
             if (addr.includes('.william')) {
                 try {
-                    let txtRecords = await queryDns(addr, 'TXT');
+                    let txtRecords = await queryDoH(addr, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
                     if (txtData.length > 0) {
                         let data = txtData[0];
@@ -504,17 +505,17 @@ function formatIdentifier(arr, offset = 0) {
 	return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}`;
 }
 
-function parseTjnReq(buffer, passwordPlainText) {
-    if (cachedTjnPwd !== passwordPlainText || !expectedTjnHashBytes) {
-        cachedTjnHash = sha224(passwordPlainText);
-        cachedTjnPwd = passwordPlainText;
-        expectedTjnHashBytes = new TextEncoder().encode(cachedTjnHash);
+function parseTJReq(buffer, passwordPlainText) {
+    if (cachedTJPwd !== passwordPlainText || !expectedTJHashBytes) {
+        cachedTJHash = sha224(passwordPlainText);
+        cachedTJPwd = passwordPlainText;
+        expectedTJHashBytes = new TextEncoder().encode(cachedTJHash);
     }
     if (buffer.byteLength < 58) return { hasError: true, message: "invalid data" };
     const reqBytes = new Uint8Array(buffer);
     if (reqBytes[56] !== 0x0d || reqBytes[57] !== 0x0a) return { hasError: true, message: "invalid header format" };
     for (let i = 0; i < 56; i++) {
-        if (reqBytes[i] !== expectedTjnHashBytes[i]) return { hasError: true, message: "invalid password" };
+        if (reqBytes[i] !== expectedTJHashBytes[i]) return { hasError: true, message: "invalid password" };
     }
     const socks5DataBuffer = buffer.slice(58);
     if (socks5DataBuffer.byteLength < 6) return { hasError: true, message: "invalid S5 request data" };
@@ -536,7 +537,7 @@ function parseTjnReq(buffer, passwordPlainText) {
     return { hasError: false, addressType: atype, port: portRemote, hostname: address, rawClientData: socks5DataBuffer.slice(portIndex + 4) };
 }
 
-function parseVlsReq(chunk, token) {
+function parseVLReq(chunk, token) {
 	if (chunk.byteLength < 24) return { hasError: true, message: 'Invalid data' };
 	const version = new Uint8Array(chunk.slice(0, 1));
 	if (formatIdentifier(new Uint8Array(chunk.slice(1, 17))) !== token) return { hasError: true, message: 'Invalid uuid' };
@@ -558,7 +559,7 @@ function parseVlsReq(chunk, token) {
 	return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 
-async function forwardUdp(udpChunk, webSocket, respHeader) {
+async function forwardUDP(udpChunk, webSocket, respHeader) {
 	try {
 		const tcpSocket = connect({ hostname: '8.8.4.4', port: 53 });
         tcpSocket.closed.catch(() => {});
@@ -662,7 +663,7 @@ async function httpConnect(targetHost, targetPort, initialData, isHttps = false,
 	}
 }
 
-async function forwardTcp(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
+async function forwardTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
     const proxyEnabled = proxyCtx?.enableType || (cc?.proxyConfig?.enabled ? cc?.proxyConfig?.type : null);
     const proxyGlobal = proxyCtx?.global ?? cc?.proxyConfig?.global;
     const proxyAddress = proxyCtx?.parsedAddress;
@@ -821,14 +822,14 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	let remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
 	let isDnsQuery = false;
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-	let isCancelRead = false, isReadEnded = false;
+	let cancelRead = false, readEnded = false;
 	const readable = new ReadableStream({
 		start(controller) {
-			const safeEnqueue = (data) => { if (isCancelRead || isReadEnded) return; try { controller.enqueue(data); } catch (err) { isReadEnded = true; } };
-			const safeClose = () => { if (isCancelRead || isReadEnded) return; isReadEnded = true; try { controller.close(); } catch (err) { } };
+			const safeEnqueue = (data) => { if (cancelRead || readEnded) return; try { controller.enqueue(data); } catch (err) { readEnded = true; } };
+			const safeCloseStream = () => { if (cancelRead || readEnded) return; readEnded = true; try { controller.close(); } catch (err) { } };
 			serverSock.addEventListener('message', (event) => { safeEnqueue(event.data); });
-			serverSock.addEventListener('close', () => { safeCloseWebSocket(serverSock); safeClose(); });
-			serverSock.addEventListener('error', (err) => { safeCloseWebSocket(serverSock); safeClose(); });
+			serverSock.addEventListener('close', () => { safeCloseWebSocket(serverSock); safeCloseStream(); });
+			serverSock.addEventListener('error', (err) => { safeCloseWebSocket(serverSock); safeCloseStream(); });
 			if (!earlyDataHeader) return;
 			try {
 				const binaryString = atob(earlyDataHeader.replace(/-/g, '+').replace(/_/g, '/'));
@@ -837,45 +838,45 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 				safeEnqueue(bytes.buffer);
 			} catch (error) {}
 		},
-		cancel() { isCancelRead = true; isReadEnded = true; safeCloseWebSocket(serverSock); }
+		cancel() { cancelRead = true; readEnded = true; safeCloseWebSocket(serverSock); }
 	});
-	let protoType = null, currWriteSock = null, remoteWriter = null;
-	const releaseRemoteWriter = () => { if (remoteWriter) { try { remoteWriter.releaseLock() } catch (e) { } remoteWriter = null; } currWriteSock = null; };
-	const writeToRemote = async (chunk, allowRetry = true) => {
+	let protocolType = null, currWriterSock = null, remoteWriter = null;
+	const releaseRemoteWriter = () => { if (remoteWriter) { try { remoteWriter.releaseLock() } catch (e) { } remoteWriter = null; } currWriterSock = null; };
+	const writeRemote = async (chunk, allowRetry = true) => {
 		const socket = remoteConnWrapper.socket;
 		if (!socket) return false;
-		if (socket !== currWriteSock) { releaseRemoteWriter(); currWriteSock = socket; remoteWriter = socket.writable.getWriter(); }
+		if (socket !== currWriterSock) { releaseRemoteWriter(); currWriterSock = socket; remoteWriter = socket.writable.getWriter(); }
 		try { await remoteWriter.write(chunk); return true; } catch (err) {
 			releaseRemoteWriter();
-			if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await writeToRemote(chunk, false); }
+			if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await writeRemote(chunk, false); }
 			throw err;
 		}
 	};
 	readable.pipeTo(new WritableStream({
 		async write(chunk) {
-			if (isDnsQuery) return await forwardUdp(chunk, serverSock, null);
-			if (await writeToRemote(chunk)) return;
-			if (protoType === null) {
+			if (isDnsQuery) return await forwardUDP(chunk, serverSock, null);
+			if (await writeRemote(chunk)) return;
+			if (protocolType === null) {
                 const bytes = new Uint8Array(chunk);
-                protoType = bytes.byteLength >= 58 && bytes[56] === 0x0d && bytes[57] === 0x0a ? 'TJ' : 'VL';
+                protocolType = bytes.byteLength >= 58 && bytes[56] === 0x0d && bytes[57] === 0x0a ? 'TJ' : 'VL';
 			}
-			if (await writeToRemote(chunk)) return;
-			if (protoType === 'TJ') {
-				const tjResult = parseTjnReq(chunk, tp || yourUUID);
-				if (tjResult?.hasError) throw new Error(tjResult.message);
-				const { port, hostname, rawClientData } = tjResult;
+			if (await writeRemote(chunk)) return;
+			if (protocolType === 'TJ') {
+				const pRes = parseTJReq(chunk, tp || yourUUID);
+				if (pRes?.hasError) throw new Error(pRes.message);
+				const { port, hostname, rawClientData } = pRes;
 				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
-				await forwardTcp(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx);
+				await forwardTCP(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx);
 			} else {
-				const vlResult = parseVlsReq(chunk, yourUUID);
-				if (vlResult?.hasError) throw new Error(vlResult.message);
-				const { port, hostname, rawIndex, version, isUDP } = vlResult;
+				const pRes = parseVLReq(chunk, yourUUID);
+				if (pRes?.hasError) throw new Error(pRes.message);
+				const { port, hostname, rawIndex, version, isUDP } = pRes;
 				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
 				if (isUDP) { if (port === 53) isDnsQuery = true; else throw new Error('UDP is not supported'); }
 				const respHeader = new Uint8Array([version[0], 0]);
 				const rawData = chunk.slice(rawIndex);
-				if (isDnsQuery) return forwardUdp(rawData, serverSock, respHeader);
-				await forwardTcp(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
+				if (isDnsQuery) return forwardUDP(rawData, serverSock, respHeader);
+				await forwardTCP(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
 			}
 		},
 		close() { releaseRemoteWriter(); }, abort() { releaseRemoteWriter(); }
@@ -883,16 +884,16 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	return new Response(null, { status: 101, webSocket: clientSock });
 }
 
-function patchClashConf(cOriSub, cJson) {
-	const uuid = cJson.uid;
-	const echEnabled = cJson.transConfig?.ech;
-	const HOSTS = [cJson.host];
-	const ECH_SNI = cJson.transConfig?.ech_sni || null;
+function patchClashConfig(clashYaml, configJson) {
+	const uuid = configJson.uid;
+	const echEnabled = configJson.transConfig?.ech;
+	const HOSTS = [configJson.host];
+	const ECH_SNI = configJson.transConfig?.ech_sni || null;
 	const ECH_DNS = "https://dns.alidns.com/dns-query";
-	let cYml = cOriSub.replace(/mode:\s*Rule\b/g, 'mode: rule');
+	let yamlStr = clashYaml.replace(/mode:\s*Rule\b/g, 'mode: rule');
 	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
 	const getProxyType = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
-	const getCredValue = (nodeText, isFlowStyle) => {
+	const getCredentialValue = (nodeText, isFlowStyle) => {
 		const credentialField = getProxyType(nodeText) === 'trojan' ? 'password' : 'uuid';
 		const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
 		return nodeText.match(pattern)?.[1]?.trim() || null;
@@ -909,33 +910,33 @@ function patchClashConf(cOriSub, cJson) {
 		if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
 		return lines.join('\n');
 	};
-	const addEchBlock = (nodeLines, tIndent) => {
+	const addBlockEchOpts = (nodeLines, topIndent) => {
 		let insertIndex = -1;
 		for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
 		if (insertIndex < 0) return nodeLines;
-		const indent = ' '.repeat(tIndent);
-		const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
-		if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
+		const indentStr = ' '.repeat(topIndent);
+		const echOptsLines = [`${indentStr}ech-opts:`, `${indentStr}  enable: true`];
+		if (ECH_SNI) echOptsLines.push(`${indentStr}  query-server-name: ${ECH_SNI}`);
 		nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
 		return nodeLines;
 	};
-	if (!/^dns:\s*(?:\n|$)/m.test(cYml)) cYml = baseDnsBlock + cYml;
+	if (!/^dns:\s*(?:\n|$)/m.test(yamlStr)) yamlStr = baseDnsBlock + yamlStr;
 	if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
 	if (echEnabled && HOSTS.length > 0) {
 		const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
-		cYml = insertNameserverPolicy(cYml, hostsEntries);
+		yamlStr = insertNameserverPolicy(yamlStr, hostsEntries);
 	}
-	if (!echEnabled) return cYml;
-	const lines = cYml.split('\n'); const processedLines = []; let i = 0;
+	if (!echEnabled) return yamlStr;
+	const lines = yamlStr.split('\n'); const processedLines = []; let i = 0;
 	while (i < lines.length) {
 		const line = lines[i], trimmedLine = line.trim();
 		if (trimmedLine.startsWith('- {')) {
 			let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
 			while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
-			if (echEnabled && getCredValue(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
+			if (echEnabled && getCredentialValue(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
 			processedLines.push(fullNode); i++;
 		} else if (trimmedLine.startsWith('- name:')) {
-			let nodeLines = [line], baseIndent = line.search(/\S/), tIndent = baseIndent + 2; i++;
+			let nodeLines = [line], baseIndent = line.search(/\S/), topIndent = baseIndent + 2; i++;
 			while (i < lines.length) {
 				const nextLine = lines[i], nextTrimmed = nextLine.trim();
 				if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
@@ -945,21 +946,21 @@ function patchClashConf(cOriSub, cJson) {
 				nodeLines.push(nextLine); i++;
 			}
 			let nodeText = nodeLines.join('\n');
-			if (echEnabled && getCredValue(nodeText, false) === uuid.trim()) nodeLines = addEchBlock(nodeLines, tIndent);
+			if (echEnabled && getCredentialValue(nodeText, false) === uuid.trim()) nodeLines = addBlockEchOpts(nodeLines, topIndent);
 			processedLines.push(...nodeLines);
 		} else { processedLines.push(line); i++; }
 	}
 	return processedLines.join('\n');
 }
 
-async function patchSingboxConf(sOriSub, cJson) {
+async function patchSingboxConfig(sOriSub, cJson) {
 	const uuid = cJson.uid;
 	const fingerprint = "chrome";
 	const ECH_SNI = cJson.transConfig?.ech_sni || cJson.host || null;
 	const ech_config = cJson.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI) : null;
-	const sbJ = sOriSub.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
+	const sbJsonText = sOriSub.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
 	try {
-		let config = JSON.parse(sbJ);
+		let config = JSON.parse(sbJsonText);
 		if (Array.isArray(config.inbounds)) {
 			config.inbounds.forEach(inbound => {
 				if (inbound.type === 'tun') {
@@ -1042,7 +1043,7 @@ async function patchSingboxConf(sOriSub, cJson) {
 			});
 		}
 		return JSON.stringify(config, null, 2);
-	} catch (e) { return JSON.stringify(JSON.parse(sbJ), null, 2); }
+	} catch (e) { return JSON.stringify(JSON.parse(sbJsonText), null, 2); }
 }
 
 async function genSurgeConfig(u, url) {
@@ -1115,8 +1116,8 @@ async function sub(req) {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
             if (res.ok) {
                 let content = await res.text();
-                if (target === 'clash') content = patchClashConf(content, { uid, host, transConfig: cc?.transConfig });
-                if (target === 'singbox') content = await patchSingboxConf(content, { uid, host, transConfig: cc?.transConfig });
+                if (target === 'clash') content = patchClashConfig(content, { uid, host, transConfig: cc?.transConfig });
+                if (target === 'singbox') content = await patchSingboxConfig(content, { uid, host, transConfig: cc?.transConfig });
                 return ResponseBuilder.text(content);
             }
         } catch(e) {}
@@ -1158,7 +1159,7 @@ async function getRequestProxyConfig(request, config) {
     }
     if (tempAccount) {
         try {
-            proxyCtx.parsedAddress = await parseSocks5(tempAccount);
+            proxyCtx.parsedAddress = await parseProxyAccount(tempAccount);
             if (searchParams.get('http')) proxyCtx.enableType = 'http';
             if (searchParams.get('https')) proxyCtx.enableType = 'https';
         } catch (err) {
@@ -1168,7 +1169,7 @@ async function getRequestProxyConfig(request, config) {
     return proxyCtx;
 }
 
-async function parseSocks5(address) {
+async function parseProxyAccount(address) {
     address = address.replace(/^(socks5?|https?|g?s5|g?https?):\/\//i, '');
     if (address.includes('#')) address = address.split('#')[0];
     address = address.trim();
@@ -2079,7 +2080,7 @@ async function handleProxyTest(req, env) {
     try {
         const { type, account } = await req.json();
         if (!account) throw new Error("节点地址为空");
-        const parsedAddress = await parseSocks5(account);
+        const parsedAddress = await parseProxyAccount(account);
         const targetHost = "www.google.com";
         const targetPort = 80;
         const startTime = Date.now();
