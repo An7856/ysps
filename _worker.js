@@ -24,9 +24,9 @@ const FAILED_TTL = 10 * 60 * 1000;
 const DIRECT_FAIL_CACHE = new Map();
 const DIRECT_FAIL_TTL = 30 * 60 * 1000;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-let cHash1 = null;
-let cPwd1 = null;
-let eHash1 = null;
+let cachedTjnHash = null;
+let cachedTjnPwd = null;
+let expectedTjnHashBytes = null;
 let cachedProxyIPList = [];
 let cachedProxyIP = '';
 
@@ -332,7 +332,7 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     return true;
 }
 
-async function qDns(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
+async function queryDns(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         let url = doh;
         if (!url.includes('?')) url += '?'; else url += '&';
@@ -352,7 +352,7 @@ async function qDns(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/d
 
 async function getECH(host) {
     try {
-        const answers = await qDns(host, 'HTTPS');
+        const answers = await queryDns(host, 'HTTPS');
         if (!answers.length) return '';
         for (const ans of answers) {
             if (ans.type === 65 && ans.data) {
@@ -387,7 +387,7 @@ async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
             }
             if (addr.includes('.william')) {
                 try {
-                    let txtRecords = await qDns(addr, 'TXT');
+                    let txtRecords = await queryDns(addr, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
                     if (txtData.length > 0) {
                         let data = txtData[0];
@@ -504,17 +504,17 @@ function formatIdentifier(arr, offset = 0) {
 	return `${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}`;
 }
 
-function pReq1(buffer, passwordPlainText) {
-    if (cPwd1 !== passwordPlainText || !eHash1) {
-        cHash1 = sha224(passwordPlainText);
-        cPwd1 = passwordPlainText;
-        eHash1 = new TextEncoder().encode(cHash1);
+function parseTjnReq(buffer, passwordPlainText) {
+    if (cachedTjnPwd !== passwordPlainText || !expectedTjnHashBytes) {
+        cachedTjnHash = sha224(passwordPlainText);
+        cachedTjnPwd = passwordPlainText;
+        expectedTjnHashBytes = new TextEncoder().encode(cachedTjnHash);
     }
     if (buffer.byteLength < 58) return { hasError: true, message: "invalid data" };
     const reqBytes = new Uint8Array(buffer);
     if (reqBytes[56] !== 0x0d || reqBytes[57] !== 0x0a) return { hasError: true, message: "invalid header format" };
     for (let i = 0; i < 56; i++) {
-        if (reqBytes[i] !== eHash1[i]) return { hasError: true, message: "invalid password" };
+        if (reqBytes[i] !== expectedTjnHashBytes[i]) return { hasError: true, message: "invalid password" };
     }
     const socks5DataBuffer = buffer.slice(58);
     if (socks5DataBuffer.byteLength < 6) return { hasError: true, message: "invalid S5 request data" };
@@ -536,7 +536,7 @@ function pReq1(buffer, passwordPlainText) {
     return { hasError: false, addressType: atype, port: portRemote, hostname: address, rawClientData: socks5DataBuffer.slice(portIndex + 4) };
 }
 
-function pReq2(chunk, token) {
+function parseVlsReq(chunk, token) {
 	if (chunk.byteLength < 24) return { hasError: true, message: 'Invalid data' };
 	const version = new Uint8Array(chunk.slice(0, 1));
 	if (formatIdentifier(new Uint8Array(chunk.slice(1, 17))) !== token) return { hasError: true, message: 'Invalid uuid' };
@@ -558,7 +558,7 @@ function pReq2(chunk, token) {
 	return { hasError: false, addressType, port, hostname, isUDP, rawIndex: addrValIdx + addrLen, version };
 }
 
-async function fwdUdp(udpChunk, webSocket, respHeader) {
+async function forwardUdp(udpChunk, webSocket, respHeader) {
 	try {
 		const tcpSocket = connect({ hostname: '8.8.4.4', port: 53 });
         tcpSocket.closed.catch(() => {});
@@ -662,7 +662,7 @@ async function httpConnect(targetHost, targetPort, initialData, isHttps = false,
 	}
 }
 
-async function fwdTcp(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
+async function forwardTcp(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
     const proxyEnabled = proxyCtx?.enableType || (cc?.proxyConfig?.enabled ? cc?.proxyConfig?.type : null);
     const proxyGlobal = proxyCtx?.global ?? cc?.proxyConfig?.global;
     const proxyAddress = proxyCtx?.parsedAddress;
@@ -821,83 +821,83 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	let remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
 	let isDnsQuery = false;
 	const earlyDataHeader = request.headers.get('sec-websocket-protocol') || '';
-	let cR = false, rE = false;
+	let isCancelRead = false, isReadEnded = false;
 	const readable = new ReadableStream({
 		start(controller) {
-			const sE = (data) => { if (cR || rE) return; try { controller.enqueue(data); } catch (err) { rE = true; } };
-			const sC = () => { if (cR || rE) return; rE = true; try { controller.close(); } catch (err) { } };
-			serverSock.addEventListener('message', (event) => { sE(event.data); });
-			serverSock.addEventListener('close', () => { safeCloseWebSocket(serverSock); sC(); });
-			serverSock.addEventListener('error', (err) => { safeCloseWebSocket(serverSock); sC(); });
+			const safeEnqueue = (data) => { if (isCancelRead || isReadEnded) return; try { controller.enqueue(data); } catch (err) { isReadEnded = true; } };
+			const safeClose = () => { if (isCancelRead || isReadEnded) return; isReadEnded = true; try { controller.close(); } catch (err) { } };
+			serverSock.addEventListener('message', (event) => { safeEnqueue(event.data); });
+			serverSock.addEventListener('close', () => { safeCloseWebSocket(serverSock); safeClose(); });
+			serverSock.addEventListener('error', (err) => { safeCloseWebSocket(serverSock); safeClose(); });
 			if (!earlyDataHeader) return;
 			try {
 				const binaryString = atob(earlyDataHeader.replace(/-/g, '+').replace(/_/g, '/'));
 				const bytes = new Uint8Array(binaryString.length);
 				for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-				sE(bytes.buffer);
+				safeEnqueue(bytes.buffer);
 			} catch (error) {}
 		},
-		cancel() { cR = true; rE = true; safeCloseWebSocket(serverSock); }
+		cancel() { isCancelRead = true; isReadEnded = true; safeCloseWebSocket(serverSock); }
 	});
-	let pt = null, cW = null, rW = null;
-	const rRW = () => { if (rW) { try { rW.releaseLock() } catch (e) { } rW = null; } cW = null; };
-	const wR = async (chunk, allowRetry = true) => {
+	let protoType = null, currWriteSock = null, remoteWriter = null;
+	const releaseRemoteWriter = () => { if (remoteWriter) { try { remoteWriter.releaseLock() } catch (e) { } remoteWriter = null; } currWriteSock = null; };
+	const writeToRemote = async (chunk, allowRetry = true) => {
 		const socket = remoteConnWrapper.socket;
 		if (!socket) return false;
-		if (socket !== cW) { rRW(); cW = socket; rW = socket.writable.getWriter(); }
-		try { await rW.write(chunk); return true; } catch (err) {
-			rRW();
-			if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await wR(chunk, false); }
+		if (socket !== currWriteSock) { releaseRemoteWriter(); currWriteSock = socket; remoteWriter = socket.writable.getWriter(); }
+		try { await remoteWriter.write(chunk); return true; } catch (err) {
+			releaseRemoteWriter();
+			if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await writeToRemote(chunk, false); }
 			throw err;
 		}
 	};
 	readable.pipeTo(new WritableStream({
 		async write(chunk) {
-			if (isDnsQuery) return await fwdUdp(chunk, serverSock, null);
-			if (await wR(chunk)) return;
-			if (pt === null) {
+			if (isDnsQuery) return await forwardUdp(chunk, serverSock, null);
+			if (await writeToRemote(chunk)) return;
+			if (protoType === null) {
                 const bytes = new Uint8Array(chunk);
-                pt = bytes.byteLength >= 58 && bytes[56] === 0x0d && bytes[57] === 0x0a ? 'P1' : 'P2';
+                protoType = bytes.byteLength >= 58 && bytes[56] === 0x0d && bytes[57] === 0x0a ? 'TJ' : 'VL';
 			}
-			if (await wR(chunk)) return;
-			if (pt === 'P1') {
-				const pRes = pReq1(chunk, tp || yourUUID);
-				if (pRes?.hasError) throw new Error(pRes.message);
-				const { port, hostname, rawClientData } = pRes;
+			if (await writeToRemote(chunk)) return;
+			if (protoType === 'TJ') {
+				const tjResult = parseTjnReq(chunk, tp || yourUUID);
+				if (tjResult?.hasError) throw new Error(tjResult.message);
+				const { port, hostname, rawClientData } = tjResult;
 				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
-				await fwdTcp(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx);
+				await forwardTcp(hostname, port, rawClientData, serverSock, null, remoteConnWrapper, yourUUID, proxyCtx);
 			} else {
-				const pRes = pReq2(chunk, yourUUID);
-				if (pRes?.hasError) throw new Error(pRes.message);
-				const { port, hostname, rawIndex, version, isUDP } = pRes;
+				const vlResult = parseVlsReq(chunk, yourUUID);
+				if (vlResult?.hasError) throw new Error(vlResult.message);
+				const { port, hostname, rawIndex, version, isUDP } = vlResult;
 				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
 				if (isUDP) { if (port === 53) isDnsQuery = true; else throw new Error('UDP is not supported'); }
 				const respHeader = new Uint8Array([version[0], 0]);
 				const rawData = chunk.slice(rawIndex);
-				if (isDnsQuery) return fwdUdp(rawData, serverSock, respHeader);
-				await fwdTcp(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
+				if (isDnsQuery) return forwardUdp(rawData, serverSock, respHeader);
+				await forwardTcp(hostname, port, rawData, serverSock, respHeader, remoteConnWrapper, yourUUID, proxyCtx);
 			}
 		},
-		close() { rRW(); }, abort() { rRW(); }
-	})).catch(() => { rRW(); safeCloseWebSocket(serverSock); });
+		close() { releaseRemoteWriter(); }, abort() { releaseRemoteWriter(); }
+	})).catch(() => { releaseRemoteWriter(); safeCloseWebSocket(serverSock); });
 	return new Response(null, { status: 101, webSocket: clientSock });
 }
 
-function pCConf(cOriSub, cJson) {
+function patchClashConf(cOriSub, cJson) {
 	const uuid = cJson.uid;
-	const eE = cJson.transConfig?.ech;
+	const echEnabled = cJson.transConfig?.ech;
 	const HOSTS = [cJson.host];
 	const ECH_SNI = cJson.transConfig?.ech_sni || null;
 	const ECH_DNS = "https://dns.alidns.com/dns-query";
 	let cYml = cOriSub.replace(/mode:\s*Rule\b/g, 'mode: rule');
 	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
-	const gPT = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
-	const gCV = (nodeText, isFlowStyle) => {
-		const credentialField = gPT(nodeText) === 'trojan' ? 'password' : 'uuid';
+	const getProxyType = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
+	const getCredValue = (nodeText, isFlowStyle) => {
+		const credentialField = getProxyType(nodeText) === 'trojan' ? 'password' : 'uuid';
 		const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
 		return nodeText.match(pattern)?.[1]?.trim() || null;
 	};
-	const iNP = (yaml, hostsEntries) => {
+	const insertNameserverPolicy = (yaml, hostsEntries) => {
 		if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
 		const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
 		for (let i = 0; i < lines.length; i++) {
@@ -909,11 +909,11 @@ function pCConf(cOriSub, cJson) {
 		if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
 		return lines.join('\n');
 	};
-	const aBE = (nodeLines, tI) => {
+	const addEchBlock = (nodeLines, tIndent) => {
 		let insertIndex = -1;
 		for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
 		if (insertIndex < 0) return nodeLines;
-		const indent = ' '.repeat(tI);
+		const indent = ' '.repeat(tIndent);
 		const echOptsLines = [`${indent}ech-opts:`, `${indent}  enable: true`];
 		if (ECH_SNI) echOptsLines.push(`${indent}  query-server-name: ${ECH_SNI}`);
 		nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
@@ -921,21 +921,21 @@ function pCConf(cOriSub, cJson) {
 	};
 	if (!/^dns:\s*(?:\n|$)/m.test(cYml)) cYml = baseDnsBlock + cYml;
 	if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
-	if (eE && HOSTS.length > 0) {
+	if (echEnabled && HOSTS.length > 0) {
 		const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
-		cYml = iNP(cYml, hostsEntries);
+		cYml = insertNameserverPolicy(cYml, hostsEntries);
 	}
-	if (!eE) return cYml;
+	if (!echEnabled) return cYml;
 	const lines = cYml.split('\n'); const processedLines = []; let i = 0;
 	while (i < lines.length) {
 		const line = lines[i], trimmedLine = line.trim();
 		if (trimmedLine.startsWith('- {')) {
 			let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
 			while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
-			if (eE && gCV(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
+			if (echEnabled && getCredValue(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
 			processedLines.push(fullNode); i++;
 		} else if (trimmedLine.startsWith('- name:')) {
-			let nodeLines = [line], baseIndent = line.search(/\S/), tI = baseIndent + 2; i++;
+			let nodeLines = [line], baseIndent = line.search(/\S/), tIndent = baseIndent + 2; i++;
 			while (i < lines.length) {
 				const nextLine = lines[i], nextTrimmed = nextLine.trim();
 				if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
@@ -945,14 +945,14 @@ function pCConf(cOriSub, cJson) {
 				nodeLines.push(nextLine); i++;
 			}
 			let nodeText = nodeLines.join('\n');
-			if (eE && gCV(nodeText, false) === uuid.trim()) nodeLines = aBE(nodeLines, tI);
+			if (echEnabled && getCredValue(nodeText, false) === uuid.trim()) nodeLines = addEchBlock(nodeLines, tIndent);
 			processedLines.push(...nodeLines);
 		} else { processedLines.push(line); i++; }
 	}
 	return processedLines.join('\n');
 }
 
-async function pSConf(sOriSub, cJson) {
+async function patchSingboxConf(sOriSub, cJson) {
 	const uuid = cJson.uid;
 	const fingerprint = "chrome";
 	const ECH_SNI = cJson.transConfig?.ech_sni || cJson.host || null;
@@ -1115,8 +1115,8 @@ async function sub(req) {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
             if (res.ok) {
                 let content = await res.text();
-                if (target === 'clash') content = pCConf(content, { uid, host, transConfig: cc?.transConfig });
-                if (target === 'singbox') content = await pSConf(content, { uid, host, transConfig: cc?.transConfig });
+                if (target === 'clash') content = patchClashConf(content, { uid, host, transConfig: cc?.transConfig });
+                if (target === 'singbox') content = await patchSingboxConf(content, { uid, host, transConfig: cc?.transConfig });
                 return ResponseBuilder.text(content);
             }
         } catch(e) {}
@@ -1158,7 +1158,7 @@ async function getRequestProxyConfig(request, config) {
     }
     if (tempAccount) {
         try {
-            proxyCtx.parsedAddress = await gS5(tempAccount);
+            proxyCtx.parsedAddress = await parseSocks5(tempAccount);
             if (searchParams.get('http')) proxyCtx.enableType = 'http';
             if (searchParams.get('https')) proxyCtx.enableType = 'https';
         } catch (err) {
@@ -1168,7 +1168,7 @@ async function getRequestProxyConfig(request, config) {
     return proxyCtx;
 }
 
-async function gS5(address) {
+async function parseSocks5(address) {
     address = address.replace(/^(socks5?|https?|g?s5|g?https?):\/\//i, '');
     if (address.includes('#')) address = address.split('#')[0];
     address = address.trim();
@@ -2079,7 +2079,7 @@ async function handleProxyTest(req, env) {
     try {
         const { type, account } = await req.json();
         if (!account) throw new Error("节点地址为空");
-        const parsedAddress = await gS5(account);
+        const parsedAddress = await parseSocks5(account);
         const targetHost = "www.google.com";
         const targetPort = 80;
         const startTime = Date.now();
