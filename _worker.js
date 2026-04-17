@@ -120,7 +120,7 @@ const ConfigUtils = {
             yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns,
             ev: true, et: false, tp: '',
             klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
-            cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
+            cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }
         };
         if (!kv) return defaultConfig;
         try {
@@ -131,7 +131,7 @@ const ConfigUtils = {
                     yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
                     dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns,
                     ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
-                    cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
+                    cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { ech: false, ech_sni: '' },
                     klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
                 };
             }
@@ -298,7 +298,7 @@ async function optimizeConfigLoading(env, ctx) {
                 parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
                 validFDCs: fdc.filter(s => s && s.trim() !== ''),
                 uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
-                proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
+                proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }
             };
         }
     };
@@ -315,7 +315,7 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     const unifiedConfig = {
         yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns,
         protocolConfig: protocolCfg || { ev, et, tp },
-        cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
+        cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { ech: false, ech_sni: '' },
         klp: klp || 'login'
     };
     const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
@@ -883,253 +883,14 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	return new Response(null, { status: 101, webSocket: clientSock });
 }
 
-async function handleGRPCRequest(request, yourUUID, proxyCtx) {
-	if (!request.body) return new Response('Bad Request', { status: 400 });
-	const reader = request.body.getReader();
-	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let isDns = false, isP1 = null, cW = null, rW = null;
-	const grpcHeaders = new Headers({ 'Content-Type': 'application/grpc', 'grpc-status': '0', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
-	return new Response(new ReadableStream({
-		async start(controller) {
-			let isC = false, sQ = [], qB = 0, fT = null;
-			const grpcBridge = {
-				readyState: 1,
-				send(data) {
-					if (isC) return;
-					const chunk = data instanceof Uint8Array ? data : new Uint8Array(data);
-					const lenBytesArr = [];
-					let remaining = chunk.byteLength >>> 0;
-					while (remaining > 127) { lenBytesArr.push((remaining & 0x7f) | 0x80); remaining >>>= 7; }
-					lenBytesArr.push(remaining);
-					const lenBytes = new Uint8Array(lenBytesArr);
-					const protobufLen = 1 + lenBytes.length + chunk.byteLength;
-					const frame = new Uint8Array(5 + protobufLen);
-					frame[0] = 0; frame[1] = (protobufLen >>> 24) & 0xff; frame[2] = (protobufLen >>> 16) & 0xff; frame[3] = (protobufLen >>> 8) & 0xff; frame[4] = protobufLen & 0xff; frame[5] = 0x0a;
-					frame.set(lenBytes, 6); frame.set(chunk, 6 + lenBytes.length);
-					sQ.push(frame); qB += frame.byteLength;
-					if (qB >= 64 * 1024) fQ(); else if (!fT) fT = setTimeout(fQ, 20);
-				},
-				close() {
-					if (this.readyState === 3) return;
-					fQ(true); isC = true; this.readyState = 3; try { controller.close() } catch (e) { }
-				}
-			};
-			const fQ = (force = false) => {
-				if (fT) { clearTimeout(fT); fT = null; }
-				if ((!force && isC) || qB === 0) return;
-				const out = new Uint8Array(qB);
-				let offset = 0;
-				for (const item of sQ) { out.set(item, offset); offset += item.byteLength; }
-				sQ = []; qB = 0;
-				try { controller.enqueue(out); } catch (e) { isC = true; grpcBridge.readyState = 3; }
-			};
-			const cC = () => {
-				if (isC) return; fQ(true); isC = true; grpcBridge.readyState = 3;
-				if (fT) clearTimeout(fT);
-				if (rW) { try { rW.releaseLock() } catch (e) { } rW = null; }
-				cW = null; try { reader.releaseLock() } catch (e) { } try { remoteConnWrapper.socket?.close() } catch (e) { } try { controller.close() } catch (e) { }
-			};
-			const rRW = () => { if (rW) { try { rW.releaseLock() } catch (e) { } rW = null; } cW = null; };
-			const wR = async (payload, allowRetry = true) => {
-				const socket = remoteConnWrapper.socket; if (!socket) return false;
-				if (socket !== cW) { rRW(); cW = socket; rW = socket.writable.getWriter(); }
-				try { await rW.write(payload); return true; } catch (err) {
-					rRW();
-					if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await wR(payload, false); }
-					throw err;
-				}
-			};
-			try {
-				let pending = new Uint8Array(0);
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					if (!value || value.byteLength === 0) continue;
-					const cCk = value instanceof Uint8Array ? value : new Uint8Array(value);
-					const merged = new Uint8Array(pending.length + cCk.length);
-					merged.set(pending, 0); merged.set(cCk, pending.length); pending = merged;
-					while (pending.byteLength >= 5) {
-						const grpcLen = ((pending[1] << 24) >>> 0) | (pending[2] << 16) | (pending[3] << 8) | pending[4];
-						const frameSize = 5 + grpcLen;
-						if (pending.byteLength < frameSize) break;
-						const grpcPayload = pending.slice(5, frameSize); pending = pending.slice(frameSize);
-						if (!grpcPayload.byteLength) continue;
-						let payload = grpcPayload;
-						if (payload.byteLength >= 2 && payload[0] === 0x0a) {
-							let shift = 0, offset = 1, vV = false;
-							while (offset < payload.length) {
-								const current = payload[offset++];
-								if ((current & 0x80) === 0) { vV = true; break; }
-								shift += 7; if (shift > 35) break;
-							}
-							if (vV) payload = payload.slice(offset);
-						}
-						if (!payload.byteLength) continue;
-						if (isDns) { await fwdUdp(payload, grpcBridge, null); continue; }
-						if (remoteConnWrapper.socket) { if (!(await wR(payload))) throw new Error('Remote socket is not ready'); }
-						else {
-							let fB;
-							if (payload instanceof ArrayBuffer) fB = payload;
-							else if (ArrayBuffer.isView(payload)) fB = payload.buffer.slice(payload.byteOffset, payload.byteOffset + payload.byteLength);
-							else fB = new Uint8Array(payload).buffer;
-							const fBy = new Uint8Array(fB);
-							if (isP1 === null) isP1 = fBy.byteLength >= 58 && fBy[56] === 0x0d && fBy[57] === 0x0a;
-							if (isP1) {
-								const pRes = pReq1(fB, tp || yourUUID);
-								if (pRes?.hasError) throw new Error(pRes.message);
-								const { port, hostname, rawClientData } = pRes;
-								if (isSpeedTestSite(hostname)) throw new Error('Speedtest blocked');
-								await fwdTcp(hostname, port, rawClientData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
-							} else {
-								const pRes = pReq2(fB, yourUUID);
-								if (pRes?.hasError) throw new Error(pRes.message);
-								const { port, hostname, rawIndex, version, isUDP } = pRes;
-								if (isSpeedTestSite(hostname)) throw new Error('Speedtest blocked');
-								if (isUDP) { if (port !== 53) throw new Error('UDP not supported'); isDns = true; }
-								const respHeader = new Uint8Array([version[0], 0]);
-								grpcBridge.send(respHeader);
-								const rawData = fB.slice(rawIndex);
-								if (isDns) await fwdUdp(rawData, grpcBridge, null);
-								else await fwdTcp(hostname, port, rawData, grpcBridge, null, remoteConnWrapper, yourUUID, proxyCtx);
-							}
-						}
-					}
-					fQ();
-				}
-			} catch (err) {} finally { rRW(); cC(); }
-		},
-		cancel() { try { remoteConnWrapper.socket?.close() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
-	}), { status: 200, headers: grpcHeaders });
-}
-
-async function rXH(reader, token) {
-	const decoder = new TextDecoder();
-	if (cPwd1 !== (tp || token) || !eHash1) {
-        cHash1 = sha224(tp || token);
-        cPwd1 = tp || token;
-        eHash1 = new TextEncoder().encode(cHash1);
-    }
-    const phb = eHash1;
-	const tryP2 = (data) => {
-		const length = data.byteLength;
-		if (length < 18) return { st: 'need_more' };
-		if (formatIdentifier(data.subarray(1, 17)) !== token) return { st: 'invalid' };
-		const optLen = data[17]; const cmdIndex = 18 + optLen;
-		if (length < cmdIndex + 1) return { st: 'need_more' };
-		const cmd = data[cmdIndex]; if (cmd !== 1 && cmd !== 2) return { st: 'invalid' };
-		const portIndex = cmdIndex + 1; if (length < portIndex + 3) return { st: 'need_more' };
-		const port = (data[portIndex] << 8) | data[portIndex + 1]; const addressType = data[portIndex + 2];
-		const addressIndex = portIndex + 3; let headerLen = -1, hostname = '';
-		if (addressType === 1) { if (length < addressIndex + 4) return { st: 'need_more' }; hostname = `${data[addressIndex]}.${data[addressIndex + 1]}.${data[addressIndex + 2]}.${data[addressIndex + 3]}`; headerLen = addressIndex + 4; }
-		else if (addressType === 2) { if (length < addressIndex + 1) return { st: 'need_more' }; const domainLen = data[addressIndex]; if (length < addressIndex + 1 + domainLen) return { st: 'need_more' }; hostname = decoder.decode(data.subarray(addressIndex + 1, addressIndex + 1 + domainLen)); headerLen = addressIndex + 1 + domainLen; }
-		else if (addressType === 3) { if (length < addressIndex + 16) return { st: 'need_more' }; const ipv6 = []; for (let i = 0; i < 8; i++) { const base = addressIndex + i * 2; ipv6.push(((data[base] << 8) | data[base + 1]).toString(16)); } hostname = ipv6.join(':'); headerLen = addressIndex + 16; }
-		else return { st: 'invalid' };
-		if (!hostname) return { st: 'invalid' };
-		return { st: 'ok', rs: { pr: 'vless', hostname, port, isUDP: cmd === 2, rawData: data.subarray(headerLen), respHeader: new Uint8Array([data[0], 0]) } };
-	};
-	const tryP1 = (data) => {
-		const length = data.byteLength;
-		if (length < 58) return { st: 'need_more' };
-		if (data[56] !== 0x0d || data[57] !== 0x0a) return { st: 'invalid' };
-		for (let i = 0; i < 56; i++) { if (data[i] !== phb[i]) return { st: 'invalid' }; }
-		const socksStart = 58; if (length < socksStart + 2) return { st: 'need_more' };
-		const cmd = data[socksStart]; if (cmd !== 1) return { st: 'invalid' };
-		const atype = data[socksStart + 1]; let cursor = socksStart + 2, hostname = '';
-		if (atype === 1) { if (length < cursor + 4) return { st: 'need_more' }; hostname = `${data[cursor]}.${data[cursor + 1]}.${data[cursor + 2]}.${data[cursor + 3]}`; cursor += 4; }
-		else if (atype === 3) { if (length < cursor + 1) return { st: 'need_more' }; const domainLen = data[cursor]; if (length < cursor + 1 + domainLen) return { st: 'need_more' }; hostname = decoder.decode(data.subarray(cursor + 1, cursor + 1 + domainLen)); cursor += 1 + domainLen; }
-		else if (atype === 4) { if (length < cursor + 16) return { st: 'need_more' }; const ipv6 = []; for (let i = 0; i < 8; i++) { const base = cursor + i * 2; ipv6.push(((data[base] << 8) | data[base + 1]).toString(16)); } hostname = ipv6.join(':'); cursor += 16; }
-		else return { st: 'invalid' };
-		if (!hostname) return { st: 'invalid' };
-		if (length < cursor + 4) return { st: 'need_more' };
-		const port = (data[cursor] << 8) | data[cursor + 1];
-		if (data[cursor + 2] !== 0x0d || data[cursor + 3] !== 0x0a) return { st: 'invalid' };
-		return { st: 'ok', rs: { pr: 'trojan', hostname, port, isUDP: false, rawData: data.subarray(cursor + 4), respHeader: null } };
-	};
-	let buffer = new Uint8Array(1024), offset = 0;
-	while (true) {
-		const { value, done } = await reader.read();
-		if (done) { if (offset === 0) return null; break; }
-		const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
-		if (offset + chunk.byteLength > buffer.byteLength) { const newBuffer = new Uint8Array(Math.max(buffer.byteLength * 2, offset + chunk.byteLength)); newBuffer.set(buffer.subarray(0, offset)); buffer = newBuffer; }
-		buffer.set(chunk, offset); offset += chunk.byteLength;
-		const cD = buffer.subarray(0, offset);
-		const tr = tryP1(cD); if (tr.st === 'ok') return { ...tr.rs, reader };
-		const vr = tryP2(cD); if (vr.st === 'ok') return { ...vr.rs, reader };
-		if (tr.st === 'invalid' && vr.st === 'invalid') return null;
-	}
-	const fd = buffer.subarray(0, offset);
-	const ftr = tryP1(fd); if (ftr.st === 'ok') return { ...ftr.rs, reader };
-	const fvr = tryP2(fd); if (fvr.st === 'ok') return { ...fvr.rs, reader };
-	return null;
-}
-
-async function handleXHTTPRequest(request, yourUUID, proxyCtx) {
-	if (!request.body) return new Response('Bad Request', { status: 400 });
-	const reader = request.body.getReader();
-	const fP = await rXH(reader, yourUUID);
-	if (!fP) { try { reader.releaseLock() } catch (e) { } return new Response('Invalid request', { status: 400 }); }
-	if (isSpeedTestSite(fP.hostname)) { try { reader.releaseLock() } catch (e) { } return new Response('Forbidden', { status: 403 }); }
-	if (fP.isUDP && fP.port !== 53) { try { reader.releaseLock() } catch (e) { } return new Response('UDP is not supported', { status: 400 }); }
-	const remoteConnWrapper = { socket: null, connectingPromise: null, retryConnect: null };
-	let cW = null, rW = null;
-	const responseHeaders = new Headers({ 'Content-Type': 'application/octet-stream', 'X-Accel-Buffering': 'no', 'Cache-Control': 'no-store' });
-	const rRW = () => { if (rW) { try { rW.releaseLock() } catch (e) { } rW = null; } cW = null; };
-	const gRW = () => { const socket = remoteConnWrapper.socket; if (!socket) return null; if (socket !== cW) { rRW(); cW = socket; rW = socket.writable.getWriter(); } return rW; };
-	return new Response(new ReadableStream({
-		async start(controller) {
-			let isC = false, udpRespHeader = fP.respHeader;
-			const xhttpBridge = {
-				readyState: 1,
-				send(data) {
-					if (isC) return;
-					try { const chunk = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : new Uint8Array(data); controller.enqueue(chunk); }
-					catch (e) { isC = true; this.readyState = 3; }
-				},
-				close() { if (isC) return; isC = true; this.readyState = 3; try { controller.close() } catch (e) { } }
-			};
-			const wR = async (payload, allowRetry = true) => {
-				const writer = gRW(); if (!writer) return false;
-				try { await writer.write(payload); return true; } catch (err) {
-					rRW();
-					if (allowRetry && typeof remoteConnWrapper.retryConnect === 'function') { await remoteConnWrapper.retryConnect(); return await wR(payload, false); }
-					throw err;
-				}
-			};
-			try {
-				if (fP.isUDP) { if (fP.rawData?.byteLength) { await fwdUdp(fP.rawData, xhttpBridge, udpRespHeader); udpRespHeader = null; } }
-				else await fwdTcp(fP.hostname, fP.port, fP.rawData, xhttpBridge, fP.respHeader, remoteConnWrapper, yourUUID, proxyCtx);
-				while (true) {
-					const { done, value } = await reader.read();
-					if (done) break;
-					if (!value || value.byteLength === 0) continue;
-					if (fP.isUDP) { await fwdUdp(value, xhttpBridge, udpRespHeader); udpRespHeader = null; }
-					else if (!(await wR(value))) throw new Error('Remote socket is not ready');
-				}
-				if (!fP.isUDP) { const writer = gRW(); if (writer) { try { await writer.close() } catch (e) { } } }
-			} catch (err) { safeCloseSocket(xhttpBridge); }
-			finally { rRW(); try { reader.releaseLock() } catch (e) { } }
-		},
-		cancel() { rRW(); try { remoteConnWrapper.socket?.close() } catch (e) { } try { reader.releaseLock() } catch (e) { } }
-	}), { status: 200, headers: responseHeaders });
-}
-
 function pCConf(cOriSub, cJson) {
 	const uuid = cJson.uid;
 	const eE = cJson.transConfig?.ech;
 	const HOSTS = [cJson.host];
 	const ECH_SNI = cJson.transConfig?.ech_sni || null;
 	const ECH_DNS = "https://dns.alidns.com/dns-query";
-	const gRPCUserAgent = "Mozilla/5.0";
-	const nGp = cJson.transConfig?.grpc;
-	const uaY = JSON.stringify(gRPCUserAgent);
 	let cYml = cOriSub.replace(/mode:\s*Rule\b/g, 'mode: rule');
 	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
-	const aIU = (text) => text.replace(/grpc-opts:\s*\{([\s\S]*?)\}/i, (all, inner) => {
-		if (/grpc-user-agent\s*:/i.test(inner)) return all;
-		let content = inner.trim(); if (content.endsWith(',')) content = content.slice(0, -1).trim();
-		return `grpc-opts: {${content ? `${content}, grpc-user-agent: ${uaY}` : `grpc-user-agent: ${uaY}`}}`;
-	});
-	const mGp = (text) => /(?:^|[,{])\s*network:\s*(?:"grpc"|'grpc'|grpc)(?=\s*(?:[,}\n#]|$))/mi.test(text);
 	const gPT = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
 	const gCV = (nodeText, isFlowStyle) => {
 		const credentialField = gPT(nodeText) === 'trojan' ? 'password' : 'uuid';
@@ -1148,36 +909,6 @@ function pCConf(cOriSub, cJson) {
 		if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
 		return lines.join('\n');
 	};
-	const aFU = (nodeText) => {
-		if (!mGp(nodeText) || /grpc-user-agent\s*:/i.test(nodeText)) return nodeText;
-		if (/grpc-opts:\s*\{/i.test(nodeText)) return aIU(nodeText);
-		return nodeText.replace(/\}(\s*)$/, `, grpc-opts: {grpc-user-agent: ${uaY}}}$1`);
-	};
-	const aBU = (nodeLines, tI) => {
-		const topInd = ' '.repeat(tI); let grpcOptsIndex = -1;
-		for (let idx = 0; idx < nodeLines.length; idx++) {
-			const line = nodeLines[idx]; if (!line.trim()) continue;
-			const indent = line.search(/\S/); if (indent !== tI) continue;
-			if (/^\s*grpc-opts:\s*(?:#.*)?$/.test(line) || /^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(line)) { grpcOptsIndex = idx; break; }
-		}
-		if (grpcOptsIndex === -1) {
-			let insertIndex = -1;
-			for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
-			if (insertIndex >= 0) nodeLines.splice(insertIndex + 1, 0, `${topInd}grpc-opts:`, `${topInd}  grpc-user-agent: ${uaY}`);
-			return nodeLines;
-		}
-		const grpcLine = nodeLines[grpcOptsIndex];
-		if (/^\s*grpc-opts:\s*\{.*\}\s*(?:#.*)?$/.test(grpcLine)) { if (!/grpc-user-agent\s*:/i.test(grpcLine)) nodeLines[grpcOptsIndex] = aIU(grpcLine); return nodeLines; }
-		let blockEndIndex = nodeLines.length, sI = tI + 2, hUA = false;
-		for (let idx = grpcOptsIndex + 1; idx < nodeLines.length; idx++) {
-			const line = nodeLines[idx], trimmed = line.trim(); if (!trimmed) continue;
-			const indent = line.search(/\S/); if (indent <= tI) { blockEndIndex = idx; break; }
-			if (indent > tI && sI === tI + 2) sI = indent;
-			if (/^grpc-user-agent\s*:/.test(trimmed)) { hUA = true; break; }
-		}
-		if (!hUA) nodeLines.splice(blockEndIndex, 0, `${' '.repeat(sI)}grpc-user-agent: ${uaY}`);
-		return nodeLines;
-	};
 	const aBE = (nodeLines, tI) => {
 		let insertIndex = -1;
 		for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
@@ -1194,14 +925,13 @@ function pCConf(cOriSub, cJson) {
 		const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
 		cYml = iNP(cYml, hostsEntries);
 	}
-	if (!eE && !nGp) return cYml;
+	if (!eE) return cYml;
 	const lines = cYml.split('\n'); const processedLines = []; let i = 0;
 	while (i < lines.length) {
 		const line = lines[i], trimmedLine = line.trim();
 		if (trimmedLine.startsWith('- {')) {
 			let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
 			while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
-			if (nGp) fullNode = aFU(fullNode);
 			if (eE && gCV(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
 			processedLines.push(fullNode); i++;
 		} else if (trimmedLine.startsWith('- name:')) {
@@ -1215,7 +945,6 @@ function pCConf(cOriSub, cJson) {
 				nodeLines.push(nextLine); i++;
 			}
 			let nodeText = nodeLines.join('\n');
-			if (nGp && mGp(nodeText)) { nodeLines = aBU(nodeLines, tI); nodeText = nodeLines.join('\n'); }
 			if (eE && gCV(nodeText, false) === uuid.trim()) nodeLines = aBE(nodeLines, tI);
 			processedLines.push(...nodeLines);
 		} else { processedLines.push(line); i++; }
@@ -1354,7 +1083,7 @@ function genConfig(u, url) {
         links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
-            const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
+            const tps = `type=ws&path=${ep}`;
             return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Vless-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
@@ -1363,7 +1092,7 @@ function genConfig(u, url) {
         links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
-            const tps = cc?.transConfig?.grpc ? `type=grpc&serviceName=` : (cc?.transConfig?.xhttp ? `type=xhttp&path=${ep}` : `type=ws&path=${ep}`);
+            const tps = `type=ws&path=${ep}`;
             return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
@@ -1574,18 +1303,14 @@ export default {
 
             const upg = req.headers.get('Upgrade');
             const url = new URL(req.url);
-            const contentType = req.headers.get('content-type') || '';
             const proxyCtx = await getRequestProxyConfig(req, config);
 
             if (upg && upg.toLowerCase() === 'websocket') {
                 return await handleWSRequest(req, uid, url, proxyCtx);
-            } else if (contentType.startsWith('application/grpc')) {
-                return await handleGRPCRequest(req, uid, proxyCtx);
-            } else if (req.method === 'POST' && !url.pathname.startsWith('/admin') && url.pathname !== `/${loginPath}` && url.pathname !== '/init' && url.pathname !== '/zxyx' && url.pathname !== '/test-proxy' && url.pathname !== '/api/usage') {
-                return await handleXHTTPRequest(req, uid, proxyCtx);
             }
 
             const pathname = url.pathname;
+
             if (pathname === '/') {
                 const token = getSessionCookie(req.headers.get('Cookie'));
                 const sessionResult = await validateAndRefreshSession(env, token);
@@ -1814,10 +1539,6 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
             <div class="stat-item">
                 <span class="stat-label">传输网络增强</span>
                 <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
-                 <span style="color:${cc?.transConfig?.grpc?'#22c55e':'#94a3b8'}">gRPC</span>
-                  <span style="opacity: 0.2;">|</span>
-                  <span style="color:${cc?.transConfig?.xhttp?'#22c55e':'#94a3b8'}">XHTTP</span>
-                  <span style="opacity: 0.2;">|</span>
                   <span style="color:${cc?.transConfig?.ech?'#22c55e':'#94a3b8'}">ECH</span>
                 </span>
             </div>
@@ -1934,8 +1655,6 @@ async function handleAdminSave(req, env) {
         const protocolEv = form.get('protocol_ev') === 'on';
         const protocolEt = form.get('protocol_et') === 'on';
         const protocolTp = form.get('protocol_tp');
-        const grpc = form.get('trans_grpc') === 'on';
-        const xhttp = form.get('trans_xhttp') === 'on';
         const ech = form.get('trans_ech') === 'on';
         const ech_sni = form.get('trans_ech_sni') || '';
         let cfAccountId = form.get('cf_account_id');
@@ -1968,7 +1687,7 @@ async function handleAdminSave(req, env) {
         const protocolCfg = { ev: protocolEv, et: protocolEt, tp: protocolTp };
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
-        const transCfg = { grpc, xhttp, ech, ech_sni };
+        const transCfg = { ech, ech_sni };
         await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg);
         yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns;
         if (u) uid = u;
@@ -2158,8 +1877,6 @@ async function saveConfig(e) {
                     <div class="form-group">
                         <label>传输模式增强</label>
                         <div style="display:flex; gap:1.5rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_grpc" ${cc?.transConfig?.grpc ? 'checked' : ''}> gRPC</label>
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_xhttp" ${cc?.transConfig?.xhttp ? 'checked' : ''}> XHTTP</label>
                             <label class="toggle-switch" style="margin:0"><input type="checkbox" name="trans_ech" ${cc?.transConfig?.ech ? 'checked' : ''}> ECH</label>
                         </div>
                     </div>
@@ -2489,7 +2206,7 @@ async function zxyx(request, env, txt = 'ADD.txt') {
                 const action = url.searchParams.get('action') || 'save';
                 if (!data.ips || !Array.isArray(data.ips)) return new Response(JSON.stringify({ error: 'Invalid IP list' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                 let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
-                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }, klp: 'login' };
+                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }, klp: 'login' };
                 if (action === 'replace-cf' || action === 'append-cf') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
