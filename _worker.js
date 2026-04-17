@@ -1076,7 +1076,7 @@ async function genSurgeConfig(u, url) {
 
 function genConfig(u, url) {
     if (!u) return '';
-    const wp = '/?ed=2560', ep = encodeURIComponent(wp);
+    const ep = encodeURIComponent('/?ed=2560');
     const links = [];
     if (ev) {
         const hd = 'vless';
@@ -2099,19 +2099,6 @@ async function handleProxyTest(req, env) {
 }
 
 async function zxyx(request, env, txt = 'ADD.txt') {
-    const countryCodeToName = {
-        'US': '美国', 'SG': '新加坡', 'DE': '德国', 'JP': '日本', 'KR': '韩国',
-        'HK': '香港', 'TW': '台湾', 'GB': '英国', 'FR': '法国', 'IN': '印度',
-        'BR': '巴西', 'CA': '加拿大', 'AU': '澳大利亚', 'NL': '荷兰', 'CH': '瑞士',
-        'SE': '瑞典', 'IT': '意大利', 'ES': '西班牙', 'RU': '俄罗斯', 'ZA': '南非',
-        'MX': '墨西哥', 'MY': '马来西亚', 'TH': '泰国', 'ID': '印度尼西亚', 'VN': '越南',
-        'PH': '菲律宾', 'TR': '土耳其', 'SA': '沙特阿拉伯', 'AE': '阿联酋', 'EG': '埃及',
-        'NG': '尼日利亚', 'IL': '以色列', 'PL': '波兰', 'UA': '乌克兰', 'CZ': '捷克',
-        'RO': '罗马尼亚', 'GR': '希腊', 'PT': '葡萄牙', 'DK': '丹麦', 'FI': '芬兰',
-        'NO': '挪威', 'AT': '奥地利', 'BE': '比利时', 'IE': '爱尔兰', 'LU': '卢森堡',
-        'CY': '塞浦路斯', 'MT': '马耳他', 'IS': '冰岛', 'CN': '中国'
-    };
-    function getCountryName(countryCode) { return countryCodeToName[countryCode] || countryCode; }
     if (!env.SJ) { env.SJ = env.SJ || env.sj; }
     const country = request.cf?.country || 'CN';
     function isValidIP(ip) {
