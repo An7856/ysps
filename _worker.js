@@ -13,7 +13,7 @@ let cc = null, ct = 0, CD = 60 * 1000;
 const STALE_CD = 60 * 60 * 1000;
 const loginAttempts = new Map();
 const SESSION_DURATION = 8 * 60 * 60 * 1000;
-let ev = true, et = false, tp = '', pe = true;
+let ev = true, et = false, tp = '';
 let protocolConfig = { ev, et, tp };
 let globalTimeout = 8000;
 let cachedUsage = null;
@@ -118,7 +118,7 @@ const ConfigUtils = {
         const kv = env.SJ || env.sj;
         const defaultConfig = {
             yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns,
-            ev: true, et: false, tp: '', pe: true,
+            ev: true, et: false, tp: '',
             klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
             cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }
         };
@@ -131,7 +131,6 @@ const ConfigUtils = {
                     yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
                     dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns,
                     ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
-                    pe: unifiedConfig.pe ?? true,
                     cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
                     klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
                 };
@@ -288,14 +287,14 @@ async function optimizeConfigLoading(env, ctx) {
             cc = newConfig;
             ct = now;
             yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns;
-            ev = cc.ev; et = cc.et; tp = cc.tp; pe = cc.pe ?? true;
+            ev = cc.ev; et = cc.et; tp = cc.tp;
             protocolConfig = { ev, et, tp };
             return cc;
         } catch (error) {
             if (cc) return cc;
             return {
                 yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns,
-                ev: ev, et: et, tp: tp, pe: pe,
+                ev: ev, et: et, tp: tp,
                 parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
                 validFDCs: fdc.filter(s => s && s.trim() !== ''),
                 uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
@@ -310,14 +309,14 @@ async function optimizeConfigLoading(env, ctx) {
     return await loadConfigTask();
 }
 
-async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null, peVal = true) {
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
         yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns,
         protocolConfig: protocolCfg || { ev, et, tp },
         cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { grpc: false, xhttp: false, ech: false, ech_sni: '' },
-        klp: klp || 'login', pe: peVal
+        klp: klp || 'login'
     };
     const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
     if (u) ps.push(kv.put(KU, u));
@@ -326,7 +325,7 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
     cc = {
         ...unifiedConfig, timestamp: Date.now(),
-        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp, pe: peVal,
+        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp,
         parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fdipArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
     };
     ct = Date.now();
@@ -1558,7 +1557,7 @@ function getPoemPage() {
     </script>
 </body>
 </html>`;
-    return ResponseBuilder.html(html, 404);
+    return ResponseBuilder.html(html, 401);
 }
 
 export default {
@@ -1587,11 +1586,6 @@ export default {
             }
 
             const pathname = url.pathname;
-            
-            if (!config.pe && pathname !== `/${p}` && pathname !== `/${uid}`) {
-                return getPoemPage();
-            }
-
             if (pathname === '/') {
                 const token = getSessionCookie(req.headers.get('Cookie'));
                 const sessionResult = await validateAndRefreshSession(env, token);
@@ -1748,7 +1742,7 @@ async function handleInit(req, env) {
     if (!UUIDUtils.isValidUUID(uuid)) return ResponseBuilder.html('UUID无效', 400);
     await sP(env, password);
     await sU(env, uuid);
-    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath, null, null, null, null, null, true);
+    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath);
     uid = uuid;
     const newToken = await signToken(env, Date.now() + SESSION_DURATION);
     return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
@@ -1951,7 +1945,6 @@ async function handleAdminSave(req, env) {
         const proxyAccount = form.get('proxy_account');
         const proxyMode = form.get('proxy_mode');
         const loginPath = form.get('login_path') || 'login';
-        const peVal = form.get('panel_enabled') === 'on';
         if (u && !UUIDUtils.isValidUUID(u)) return ResponseBuilder.text('UUID无效', 400);
         const cfipArr = uniqueIPList(cfipList.split('\n').map(x => x.trim()).filter(Boolean));
         const fdipArr = uniqueIPList(fdipList.split('\n').map(x => x.trim()).filter(Boolean));
@@ -1976,10 +1969,10 @@ async function handleAdminSave(req, env) {
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
         const transCfg = { grpc, xhttp, ech, ech_sni };
-        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg, peVal);
+        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg);
         yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns;
         if (u) uid = u;
-        ev = protocolEv; et = protocolEt; tp = protocolTp; pe = peVal;
+        ev = protocolEv; et = protocolEt; tp = protocolTp;
         protocolConfig = { ev, et, tp };
         const host = req.headers.get('Host');
         if (req.headers.get('Accept') === 'application/json') return ResponseBuilder.json({ success: true });
@@ -2294,13 +2287,6 @@ async function saveConfig(e) {
                     <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
                     <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求。</span></div>
                 </div>
-                <div class="form-group" style="margin-top:1.5rem; border-top: 1px dashed var(--border); padding-top: 1.5rem;">
-                    <label>控制面板状态 (防封锁终极开关)</label>
-                    <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                        <label class="toggle-switch" style="margin:0"><input type="checkbox" name="panel_enabled" ${cc?.pe ?? true ? 'checked' : ''}> 启用 Web 面板入口</label>
-                    </div>
-                    <div class="help-text"><i class="fas fa-exclamation-triangle" style="color:#ef4444;"></i><span>关闭后所有面板入口(含测速页)将返回404，仅保留代理和订阅功能。若需恢复，只能前往 Cloudflare Dashboard 手动修改 KV (将 pe 设为 true)！</span></div>
-                </div>
             </div>
 
             <div class="card" style="margin-bottom: 5rem;">
@@ -2503,7 +2489,7 @@ async function zxyx(request, env, txt = 'ADD.txt') {
                 const action = url.searchParams.get('action') || 'save';
                 if (!data.ips || !Array.isArray(data.ips)) return new Response(JSON.stringify({ error: 'Invalid IP list' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                 let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
-                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }, klp: 'login', pe: pe };
+                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { grpc: false, xhttp: false, ech: false, ech_sni: '' }, klp: 'login' };
                 if (action === 'replace-cf' || action === 'append-cf') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
