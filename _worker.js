@@ -892,6 +892,7 @@ function patchClashConfig(clashYaml, configJson) {
     const ECH_DNS = "https://dns.alidns.com/dns-query";
     let yamlStr = clashYaml.replace(/mode:\s*Rule\b/g, 'mode: rule');
     const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
+    
     const insertNameserverPolicy = (yaml, hostsEntries) => {
         if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
         const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
@@ -904,20 +905,25 @@ function patchClashConfig(clashYaml, configJson) {
         if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
         return lines.join('\n');
     };
+
     if (!/^dns:\s*(?:\n|$)/m.test(yamlStr)) yamlStr = baseDnsBlock + yamlStr;
     if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
     if (echEnabled && HOSTS.length > 0) {
         const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
         yamlStr = insertNameserverPolicy(yamlStr, hostsEntries);
     }
+    
     if (!echEnabled) return yamlStr;
+
     const lines = yamlStr.split('\n');
     const processedLines = [];
     let i = 0;
     let inProxiesBlock = false;
+
     while (i < lines.length) {
         const line = lines[i];
         const trimmedLine = line.trim();
+
         if (trimmedLine.startsWith('proxies:')) {
             inProxiesBlock = true;
             processedLines.push(line);
@@ -926,6 +932,7 @@ function patchClashConfig(clashYaml, configJson) {
         } else if (inProxiesBlock && /^[a-zA-Z]/.test(line)) {
             inProxiesBlock = false;
         }
+
         if (inProxiesBlock) {
             if (trimmedLine.startsWith('- {') && (trimmedLine.includes('type: vless') || trimmedLine.includes('type: trojan') || trimmedLine.includes('type: vmess') || trimmedLine.includes('type: ss'))) {
                 let fullNode = line;
@@ -935,7 +942,16 @@ function patchClashConfig(clashYaml, configJson) {
                     fullNode += '\n' + lines[i];
                     braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length;
                 }
-                fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`);
+                
+                // 重点：注入 client-fingerprint 和 ech-opts
+                let injection = `, client-fingerprint: chrome, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}`;
+                // 为了防止重复注入，先检查是否已经有了
+                if (!fullNode.includes('client-fingerprint:')) {
+                    fullNode = fullNode.replace(/\}(\s*)$/, `${injection}}$1`);
+                } else if (!fullNode.includes('ech-opts:')) {
+                    fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`);
+                }
+                
                 processedLines.push(fullNode);
                 i++;
                 continue;
@@ -954,13 +970,27 @@ function patchClashConfig(clashYaml, configJson) {
                     nodeLines.push(nextLine);
                     i++;
                 }
+                
                 let insertIndex = -1;
                 for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
+                
                 if (insertIndex >= 0) {
                     const indentStr = ' '.repeat(topIndent);
-                    const echOptsLines = [`${indentStr}ech-opts:`, `${indentStr}  enable: true`];
-                    if (ECH_SNI) echOptsLines.push(`${indentStr}  query-server-name: ${ECH_SNI}`);
-                    nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
+                    const echOptsLines = [];
+                    
+                    const nodeText = nodeLines.join('\n');
+                    if (!nodeText.includes('client-fingerprint:')) {
+                        echOptsLines.push(`${indentStr}client-fingerprint: chrome`);
+                    }
+                    if (!nodeText.includes('ech-opts:')) {
+                        echOptsLines.push(`${indentStr}ech-opts:`);
+                        echOptsLines.push(`${indentStr}  enable: true`);
+                        if (ECH_SNI) echOptsLines.push(`${indentStr}  query-server-name: ${ECH_SNI}`);
+                    }
+                    
+                    if (echOptsLines.length > 0) {
+                        nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
+                    }
                 }
                 processedLines.push(...nodeLines);
                 continue;
@@ -1028,13 +1058,16 @@ async function patchSingboxConfig(sOriSub, cJson) {
 		if (config.dns && config.dns.rules) processRules(config.dns.rules, true);
 		if (config.route && config.route.rules) processRules(config.route.rules, false);
 		if (ruleSetsDefinitions.size > 0) { if (!config.route) config.route = {}; config.route.rule_set = Array.from(ruleSetsDefinitions.values()); }
-		if (!config.outbounds) config.outbounds = [];
-		config.outbounds = config.outbounds.filter(o => o.tag !== 'REJECT' && o.tag !== 'block');
+		
+		if (!Array.isArray(config.outbounds)) config.outbounds = [];
+		config.outbounds = config.outbounds.filter(o => o && o.tag !== 'REJECT' && o.tag !== 'block');
+		
 		const existingOutboundTags = new Set(config.outbounds.map(o => o.tag));
 		if (!existingOutboundTags.has('DIRECT')) { config.outbounds.push({ "type": "direct", "tag": "DIRECT" }); existingOutboundTags.add('DIRECT'); }
-		if (config.dns && config.dns.servers) {
+		
+		if (config.dns && Array.isArray(config.dns.servers)) {
 			const dnsServerTags = new Set(config.dns.servers.map(s => s.tag));
-			if (config.dns.rules) {
+			if (Array.isArray(config.dns.rules)) {
 				config.dns.rules.forEach(rule => {
 					if (rule.server && !dnsServerTags.has(rule.server)) {
 						if (rule.server === 'dns_block' && dnsServerTags.has('block')) rule.server = 'block';
@@ -1043,6 +1076,7 @@ async function patchSingboxConfig(sOriSub, cJson) {
 				});
 			}
 		}
+		
 		config.outbounds.forEach(outbound => {
 			if (outbound.type === 'selector' || outbound.type === 'urltest') {
 				if (Array.isArray(outbound.outbounds)) {
@@ -1051,12 +1085,18 @@ async function patchSingboxConfig(sOriSub, cJson) {
 				}
 			}
 		});
-        
+
         config.outbounds.forEach(outbound => {
-            if (outbound.type === 'vless' || outbound.type === 'trojan' || outbound.type === 'vmess' || outbound.type === 'shadowsocks') {
-                if (!outbound.tls) outbound.tls = { enabled: true };
-                if (fingerprint) outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
-                if (ech_config) {
+            if (outbound && (outbound.type === 'vless' || outbound.type === 'trojan' || outbound.type === 'vmess' || outbound.type === 'shadowsocks')) {
+                if (typeof outbound.tls !== 'object' || outbound.tls === null) {
+                    outbound.tls = { enabled: true };
+                } else {
+                    outbound.tls.enabled = true;
+                }
+                
+                outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
+                
+                if (cJson.transConfig?.ech && ech_config) {
                     outbound.tls.ech = { 
                         enabled: true, 
                         config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----` 
@@ -1066,7 +1106,9 @@ async function patchSingboxConfig(sOriSub, cJson) {
         });
 
 		return JSON.stringify(config, null, 2);
-	} catch (e) { return JSON.stringify(JSON.parse(sbJsonText), null, 2); }
+	} catch (e) { 
+        return JSON.stringify(JSON.parse(sbJsonText), null, 2); 
+    }
 }
 
 async function genSurgeConfig(u, url) {
