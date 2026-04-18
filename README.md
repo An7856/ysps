@@ -4,3 +4,4 @@
    · 进入项目 → Settings → Functions → Compatibility Flags
    · 添加 nodejs_compat
 2. Pages 函数文件位置：将 _worker.js 放在项目根目录的 /functions 文件夹下，或直接命名为 /functions/[[path]].js 以捕获所有路由。
+3.如果不能上网，可以尝试修改Cloudflare项目的兼容版本日期
