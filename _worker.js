@@ -886,76 +886,93 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 }
 
 function patchClashConfig(clashYaml, configJson) {
-	const uuid = configJson.uid;
-	const echEnabled = configJson.transConfig?.ech;
-	const HOSTS = [configJson.host];
-	const ECH_SNI = configJson.transConfig?.ech_sni || null;
-	const ECH_DNS = "https://dns.alidns.com/dns-query";
-	let yamlStr = clashYaml.replace(/mode:\s*Rule\b/g, 'mode: rule');
-	const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
-	const getProxyType = (nodeText) => nodeText.match(/type:\s*(\w+)/)?.[1] || 'vless';
-	const getCredentialValue = (nodeText, isFlowStyle) => {
-		const credentialField = getProxyType(nodeText) === 'trojan' ? 'password' : 'uuid';
-		const pattern = new RegExp(`${credentialField}:\\s*${isFlowStyle ? '([^,}\\n]+)' : '([^\\n]+)'}`);
-		return nodeText.match(pattern)?.[1]?.trim() || null;
-	};
-	const insertNameserverPolicy = (yaml, hostsEntries) => {
-		if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
-		const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
-		for (let i = 0; i < lines.length; i++) {
-			const line = lines[i];
-			if (/^dns:\s*$/.test(line)) { inDnsBlock = true; continue; }
-			if (inDnsBlock && /^[a-zA-Z]/.test(line)) { dnsBlockEndIndex = i; break; }
-		}
-		const nameserverPolicyBlock = `  nameserver-policy:\n${hostsEntries}`;
-		if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
-		return lines.join('\n');
-	};
-	const addBlockEchOpts = (nodeLines, topIndent) => {
-		let insertIndex = -1;
-		for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
-		if (insertIndex < 0) return nodeLines;
-		const indentStr = ' '.repeat(topIndent);
-		const echOptsLines = [`${indentStr}ech-opts:`, `${indentStr}  enable: true`];
-		if (ECH_SNI) echOptsLines.push(`${indentStr}  query-server-name: ${ECH_SNI}`);
-		nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
-		return nodeLines;
-	};
-	if (!/^dns:\s*(?:\n|$)/m.test(yamlStr)) yamlStr = baseDnsBlock + yamlStr;
-	if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
-	if (echEnabled && HOSTS.length > 0) {
-		const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
-		yamlStr = insertNameserverPolicy(yamlStr, hostsEntries);
-	}
-	if (!echEnabled) return yamlStr;
-	const lines = yamlStr.split('\n'); const processedLines = []; let i = 0;
-	while (i < lines.length) {
-		const line = lines[i], trimmedLine = line.trim();
-		if (trimmedLine.startsWith('- {')) {
-			let fullNode = line, braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
-			while (braceCount > 0 && i + 1 < lines.length) { i++; fullNode += '\n' + lines[i]; braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length; }
-			if (echEnabled && getCredentialValue(fullNode, true) === uuid.trim()) { fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`); }
-			processedLines.push(fullNode); i++;
-		} else if (trimmedLine.startsWith('- name:')) {
-			let nodeLines = [line], baseIndent = line.search(/\S/), topIndent = baseIndent + 2; i++;
-			while (i < lines.length) {
-				const nextLine = lines[i], nextTrimmed = nextLine.trim();
-				if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
-				const nextIndent = nextLine.search(/\S/);
-				if (nextIndent <= baseIndent && nextTrimmed.startsWith('- ')) break;
-				if (nextIndent < baseIndent && nextTrimmed) break;
-				nodeLines.push(nextLine); i++;
-			}
-			let nodeText = nodeLines.join('\n');
-			if (echEnabled && getCredentialValue(nodeText, false) === uuid.trim()) nodeLines = addBlockEchOpts(nodeLines, topIndent);
-			processedLines.push(...nodeLines);
-		} else { processedLines.push(line); i++; }
-	}
-	return processedLines.join('\n');
+    const echEnabled = configJson.transConfig?.ech;
+    const HOSTS = [configJson.host];
+    const ECH_SNI = configJson.transConfig?.ech_sni || null;
+    const ECH_DNS = "https://dns.alidns.com/dns-query";
+    let yamlStr = clashYaml.replace(/mode:\s*Rule\b/g, 'mode: rule');
+    const baseDnsBlock = `dns:\n  enable: true\n  default-nameserver:\n    - 223.5.5.5\n    - 114.114.114.114\n  use-hosts: true\n  nameserver:\n    - https://sm2.doh.pub/dns-query\n    - https://dns.alidns.com/dns-query\n  fallback:\n    - 8.8.4.4\n`;
+    const insertNameserverPolicy = (yaml, hostsEntries) => {
+        if (/^\s{2}nameserver-policy:\s*(?:\n|$)/m.test(yaml)) return yaml.replace(/^(\s{2}nameserver-policy:\s*\n)/m, `$1${hostsEntries}\n`);
+        const lines = yaml.split('\n'); let dnsBlockEndIndex = -1, inDnsBlock = false;
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            if (/^dns:\s*$/.test(line)) { inDnsBlock = true; continue; }
+            if (inDnsBlock && /^[a-zA-Z]/.test(line)) { dnsBlockEndIndex = i; break; }
+        }
+        const nameserverPolicyBlock = `  nameserver-policy:\n${hostsEntries}`;
+        if (dnsBlockEndIndex !== -1) lines.splice(dnsBlockEndIndex, 0, nameserverPolicyBlock); else lines.push(nameserverPolicyBlock);
+        return lines.join('\n');
+    };
+    if (!/^dns:\s*(?:\n|$)/m.test(yamlStr)) yamlStr = baseDnsBlock + yamlStr;
+    if (ECH_SNI && !HOSTS.includes(ECH_SNI)) HOSTS.push(ECH_SNI);
+    if (echEnabled && HOSTS.length > 0) {
+        const hostsEntries = HOSTS.map(host => `    "${host}":\n      - ${ECH_DNS}\n      - https://doh.cm.edu.kg/CMLiussss`).join('\n');
+        yamlStr = insertNameserverPolicy(yamlStr, hostsEntries);
+    }
+    if (!echEnabled) return yamlStr;
+    const lines = yamlStr.split('\n');
+    const processedLines = [];
+    let i = 0;
+    let inProxiesBlock = false;
+    while (i < lines.length) {
+        const line = lines[i];
+        const trimmedLine = line.trim();
+        if (trimmedLine.startsWith('proxies:')) {
+            inProxiesBlock = true;
+            processedLines.push(line);
+            i++;
+            continue;
+        } else if (inProxiesBlock && /^[a-zA-Z]/.test(line)) {
+            inProxiesBlock = false;
+        }
+        if (inProxiesBlock) {
+            if (trimmedLine.startsWith('- {') && (trimmedLine.includes('type: vless') || trimmedLine.includes('type: trojan') || trimmedLine.includes('type: vmess') || trimmedLine.includes('type: ss'))) {
+                let fullNode = line;
+                let braceCount = (line.match(/\{/g) || []).length - (line.match(/\}/g) || []).length;
+                while (braceCount > 0 && i + 1 < lines.length) {
+                    i++;
+                    fullNode += '\n' + lines[i];
+                    braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length;
+                }
+                fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}}$1`);
+                processedLines.push(fullNode);
+                i++;
+                continue;
+            } else if (trimmedLine.startsWith('- name:')) {
+                let nodeLines = [line];
+                let baseIndent = line.search(/\S/);
+                let topIndent = baseIndent + 2;
+                i++;
+                while (i < lines.length) {
+                    const nextLine = lines[i];
+                    const nextTrimmed = nextLine.trim();
+                    if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
+                    const nextIndent = nextLine.search(/\S/);
+                    if (nextIndent <= baseIndent && nextTrimmed.startsWith('- ')) break;
+                    if (nextIndent < baseIndent && nextTrimmed) break;
+                    nodeLines.push(nextLine);
+                    i++;
+                }
+                let insertIndex = -1;
+                for (let j = nodeLines.length - 1; j >= 0; j--) { if (nodeLines[j].trim()) { insertIndex = j; break; } }
+                if (insertIndex >= 0) {
+                    const indentStr = ' '.repeat(topIndent);
+                    const echOptsLines = [`${indentStr}ech-opts:`, `${indentStr}  enable: true`];
+                    if (ECH_SNI) echOptsLines.push(`${indentStr}  query-server-name: ${ECH_SNI}`);
+                    nodeLines.splice(insertIndex + 1, 0, ...echOptsLines);
+                }
+                processedLines.push(...nodeLines);
+                continue;
+            }
+        }
+        processedLines.push(line);
+        i++;
+    }
+    return processedLines.join('\n');
 }
 
 async function patchSingboxConfig(sOriSub, cJson) {
-	const uuid = cJson.uid;
 	const fingerprint = "chrome";
 	const ECH_SNI = cJson.transConfig?.ech_sni || cJson.host || null;
 	const ech_config = cJson.transConfig?.ech && ECH_SNI ? await getECH(ECH_SNI) : null;
@@ -1034,15 +1051,20 @@ async function patchSingboxConfig(sOriSub, cJson) {
 				}
 			}
 		});
-		if (uuid) {
-			config.outbounds.forEach(outbound => {
-				if ((outbound.uuid && outbound.uuid === uuid) || (outbound.password && outbound.password === uuid) || (outbound.method && String(outbound.password).includes(uuid))) {
-					if (!outbound.tls) outbound.tls = { enabled: true };
-					if (fingerprint) outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
-					if (ech_config) outbound.tls.ech = { enabled: true, config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----` };
-				}
-			});
-		}
+        
+        config.outbounds.forEach(outbound => {
+            if (outbound.type === 'vless' || outbound.type === 'trojan' || outbound.type === 'vmess' || outbound.type === 'shadowsocks') {
+                if (!outbound.tls) outbound.tls = { enabled: true };
+                if (fingerprint) outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
+                if (ech_config) {
+                    outbound.tls.ech = { 
+                        enabled: true, 
+                        config: `-----BEGIN ECH CONFIGS-----\n${ech_config}\n-----END ECH CONFIGS-----` 
+                    };
+                }
+            }
+        });
+
 		return JSON.stringify(config, null, 2);
 	} catch (e) { return JSON.stringify(JSON.parse(sbJsonText), null, 2); }
 }
