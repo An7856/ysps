@@ -8,6 +8,7 @@ let dns = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
 let dyhd = atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw==');
 let dypz = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ==');
 let stp = '';
+let proxyUrl = 'https://docs.github.com';
 const KP = 'admin_password', KU = 'user_uuid', K_SETTINGS = 'SYSTEM_CONFIG';
 let cc = null, ct = 0, CD = 60 * 1000;
 const STALE_CD = 60 * 60 * 1000;
@@ -117,7 +118,7 @@ const ConfigUtils = {
     async loadAllConfig(env) {
         const kv = env.SJ || env.sj;
         const defaultConfig = {
-            yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns,
+            yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns, proxyUrl: proxyUrl,
             ev: true, et: false, tp: '', pe: true,
             klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
             cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }
@@ -129,7 +130,7 @@ const ConfigUtils = {
                 const configUid = unifiedConfig.uid || uid;
                 return {
                     yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
-                    dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns,
+                    dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns, proxyUrl: unifiedConfig.proxyUrl || proxyUrl,
                     ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
                     pe: unifiedConfig.pe ?? true,
                     cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {}, transConfig: unifiedConfig.transConfig || { ech: false, ech_sni: '' },
@@ -226,7 +227,7 @@ function clearSessionCookie() { return `cf_worker_session=; Path=/; HttpOnly; Se
 async function requireAuth(req, env, handler) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
-    if (!sessionResult.valid) return getPoemPage();
+    if (!sessionResult.valid) return fetchProxyPage(req);
     if (sessionResult.refreshed) {
         const response = await handler(req, env);
         response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
@@ -287,14 +288,14 @@ async function optimizeConfigLoading(env, ctx) {
             };
             cc = newConfig;
             ct = now;
-            yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns;
+            yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns; proxyUrl = cc.proxyUrl || proxyUrl;
             ev = cc.ev; et = cc.et; tp = cc.tp; pe = cc.pe ?? true;
             protocolConfig = { ev, et, tp };
             return cc;
         } catch (error) {
             if (cc) return cc;
             return {
-                yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns,
+                yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns, proxyUrl: proxyUrl,
                 ev: ev, et: et, tp: tp, pe: pe,
                 parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
                 validFDCs: fdc.filter(s => s && s.trim() !== ''),
@@ -310,11 +311,11 @@ async function optimizeConfigLoading(env, ctx) {
     return await loadConfigTask();
 }
 
-async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null, peVal = true) {
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, transCfg = null, peVal = true, newProxyUrl = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
-        yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns,
+        yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns, proxyUrl: newProxyUrl || proxyUrl,
         protocolConfig: protocolCfg || { ev, et, tp },
         cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {}, transConfig: transCfg || { ech: false, ech_sni: '' },
         klp: klp || 'login', pe: peVal
@@ -1242,6 +1243,20 @@ async function getCloudflareUsageAPI(env) {
     } catch (error) { return { success: false, pages: 0, workers: 0, total: 0 }; }
 }
 
+async function fetchProxyPage(req) {
+    const url = new URL(req.url);
+    url.hostname = new URL(proxyUrl).hostname;
+    url.protocol = new URL(proxyUrl).protocol;
+    const newReq = new Request(url.toString(), req);
+    newReq.headers.set('Host', url.hostname);
+    newReq.headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    try {
+        return await fetch(newReq);
+    } catch (e) {
+        return new Response('Not Found', { status: 404 });
+    }
+}
+
 function getCommonCSS() {
     return `:root { --primary: #4f46e5; --primary-hover: #4338ca; --secondary: #64748b; --bg-grad-1: hsla(253,16%,7%,1); --bg-grad-2: hsla(225,39%,30%,1); --bg-grad-3: hsla(339,49%,30%,1); --surface: rgba(255, 255, 255, 0.9); --glass: blur(12px) saturate(180%); --text: #1e293b; --text-light: #64748b; --border: rgba(226, 232, 240, 0.8); --shadow: 0 10px 30px -10px rgba(0,0,0,0.1); --radius: 16px; } @media (prefers-color-scheme: dark) { :root { --primary: #818cf8; --primary-hover: #6366f1; --secondary: #94a3b8; --surface: rgba(30, 41, 59, 0.85); --text: #f1f5f9; --text-light: #94a3b8; --border: rgba(51, 65, 85, 0.8); --shadow: 0 10px 30px -10px rgba(0,0,0,0.5); } } * { box-sizing: border-box; } body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #0f172a; background-image: radial-gradient(at 0% 0%, var(--bg-grad-1) 0, transparent 50%), radial-gradient(at 50% 0%, var(--bg-grad-2) 0, transparent 50%), radial-gradient(at 100% 0%, var(--bg-grad-3) 0, transparent 50%); background-attachment: fixed; color: var(--text); margin: 0; min-height: 100vh; width: 100vw; overflow-x: hidden; display: flex; flex-direction: column; align-items: center; justify-content: center; -webkit-font-smoothing: antialiased; padding: 1rem; } .card { background: var(--surface); backdrop-filter: var(--glass); -webkit-backdrop-filter: var(--glass); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 2.5rem; width: 100%; max-width: 100%; transition: transform 0.2s ease; } .logo { font-size: 3rem; margin-bottom: 1rem; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; display: inline-block; filter: drop-shadow(0 2px 4px rgba(99, 102, 241, 0.3)); } h1 { font-size: 1.75rem; font-weight: 700; margin: 0 0 0.5rem 0; letter-spacing: -0.025em; } p { color: var(--text-light); line-height: 1.6; margin-bottom: 1.5rem; } .form-group { margin-bottom: 1.25rem; text-align: left; } label { display: block; font-size: 0.875rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text); } input, select, textarea { width: 100%; max-width: 100%; padding: 0.75rem 1rem; border-radius: 0.75rem; border: 1px solid var(--border); background: rgba(255,255,255,0.05); color: var(--text); font-size: 1rem; transition: all 0.2s; } input:focus, select:focus, textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2); background: rgba(255,255,255,0.1); } .btn { display: inline-flex; align-items: center; justify-content: center; width: 100%; padding: 0.875rem 1.5rem; border-radius: 0.75rem; background: linear-gradient(135deg, var(--primary) 0%, #a855f7 100%); color: white; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; text-decoration: none; box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.4); gap: 0.5rem; white-space: nowrap; font-size: 1rem; } .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.5); filter: brightness(1.1); } .btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--text); box-shadow: none; font-size: 1rem; padding: 0.875rem 1.5rem; } .btn-secondary:hover { background: rgba(255,255,255,0.05); box-shadow: none; } .error-msg { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; margin-bottom: 1.5rem; } .success-msg { background: rgba(34, 197, 94, 0.1); border: 1px solid rgba(34, 197, 94, 0.2); color: #22c55e; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; margin-bottom: 1.5rem; } .footer { margin-top: 2rem; font-size: 0.875rem; color: var(--text-light); opacity: 0.8; } .toggle-switch { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none; } .toggle-switch input { appearance: none; -webkit-appearance: none; width: 1.2rem; height: 1.2rem; border: 2px solid var(--border); background: rgba(255,255,255,0.05); cursor: pointer; position: relative; display: flex; align-items: center; justify-content: center; transition: all 0.2s ease; flex-shrink: 0; } .toggle-switch input:checked { background: var(--primary); border-color: var(--primary); } .toggle-switch input[type="checkbox"] { border-radius: 6px; } .toggle-switch input[type="radio"] { border-radius: 50%; } .toggle-switch input::after { content: ''; position: absolute; opacity: 0; transition: opacity 0.2s; } .toggle-switch input[type="checkbox"]::after { width: 4px; height: 8px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg) translate(-1px, -1px); } .toggle-switch input[type="radio"]::after { width: 6px; height: 6px; background: white; border-radius: 50%; } .toggle-switch input:checked::after { opacity: 1; } @keyframes pulse-green { 0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); } 70% { box-shadow: 0 0 0 6px rgba(34, 197, 94, 0); } 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); } } .status-dot { height: 10px; width: 10px; background-color: #22c55e; border-radius: 50%; display: inline-block; margin-right: 6px; animation: pulse-green 2s infinite; } .toast-container { position: fixed; top: 24px; left: 50%; transform: translateX(-50%); z-index: 10000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; } .toast { background: var(--surface); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 12px 24px; border-radius: 50px; box-shadow: var(--shadow); color: var(--text); font-weight: 500; font-size: 0.95rem; display: flex; align-items: center; gap: 10px; opacity: 0; transform: translateY(-20px); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); pointer-events: auto; border: 1px solid var(--border); } .toast.show { opacity: 1; transform: translateY(0); } .toast.success { border-color: rgba(34, 197, 94, 0.5); } .toast.success i { color: #22c55e; } .toast.error { border-color: rgba(239, 68, 68, 0.5); } .toast.error i { color: #ef4444; }`;
 }
@@ -1312,6 +1327,10 @@ export default {
 
             const pathname = url.pathname;
 
+            if (!config.pe && pathname !== `/${p}` && pathname !== `/${uid}`) {
+                return fetchProxyPage(req);
+            }
+
             if (pathname === '/') {
                 const token = getSessionCookie(req.headers.get('Cookie'));
                 const sessionResult = await validateAndRefreshSession(env, token);
@@ -1324,7 +1343,7 @@ export default {
                     const pw = await gP(env); const u = await gU(env);
                     if (!pw || !u) return getInitPage(req.headers.get('Host'), `https://${req.headers.get('Host')}`, true);
                     if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-                    return getPoemPage();
+                    return fetchProxyPage(req);
                 }
             }
 
@@ -1348,7 +1367,7 @@ export default {
             if (pathname === `/${uid}`) return await sub(req);
 
             if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-            return getPoemPage();
+            return fetchProxyPage(req);
         } catch (err) {
             return ErrorHandler.internalError();
         }
@@ -1468,7 +1487,7 @@ async function handleInit(req, env) {
     if (!UUIDUtils.isValidUUID(uuid)) return ResponseBuilder.html('UUID无效', 400);
     await sP(env, password);
     await sU(env, uuid);
-    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath);
+    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath, null, null, null, null, null, true, null);
     uid = uuid;
     const newToken = await signToken(env, Date.now() + SESSION_DURATION);
     return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
@@ -1665,6 +1684,8 @@ async function handleAdminSave(req, env) {
         const proxyAccount = form.get('proxy_account');
         const proxyMode = form.get('proxy_mode');
         const loginPath = form.get('login_path') || 'login';
+        const peVal = form.get('panel_enabled') === 'on';
+        const newProxyUrl = form.get('proxy_url') || 'https://docs.github.com';
         if (u && !UUIDUtils.isValidUUID(u)) return ResponseBuilder.text('UUID无效', 400);
         const cfipArr = uniqueIPList(cfipList.split('\n').map(x => x.trim()).filter(Boolean));
         const fdipArr = uniqueIPList(fdipList.split('\n').map(x => x.trim()).filter(Boolean));
@@ -1689,10 +1710,10 @@ async function handleAdminSave(req, env) {
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
         const transCfg = { ech, ech_sni };
-        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg);
-        yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns;
+        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, transCfg, peVal, newProxyUrl);
+        yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns; proxyUrl = newProxyUrl;
         if (u) uid = u;
-        ev = protocolEv; et = protocolEt; tp = protocolTp;
+        ev = protocolEv; et = protocolEt; tp = protocolTp; pe = peVal;
         protocolConfig = { ev, et, tp };
         const host = req.headers.get('Host');
         if (req.headers.get('Accept') === 'application/json') return ResponseBuilder.json({ success: true });
@@ -1839,7 +1860,27 @@ async function saveConfig(e) {
         btn.innerHTML = originalText;
     }
 }
+function togglePanelInputs() {
+    const checkbox = document.querySelector('input[name="panel_enabled"]');
+    const proxyUrlInput = document.getElementById('proxy-url-input');
+    if (!checkbox.checked) {
+        proxyUrlInput.style.display = 'block';
+        proxyUrlInput.style.animation = 'fadeIn 0.3s';
+    } else {
+        proxyUrlInput.style.display = 'none';
+    }
+}
+document.addEventListener('DOMContentLoaded', () => {
+    togglePanelInputs();
+    document.querySelector('input[name="panel_enabled"]').addEventListener('change', togglePanelInputs);
+});
 </script>
+<style>
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>
 </head>
 <body>
     <div class="admin-container">
@@ -2004,6 +2045,20 @@ async function saveConfig(e) {
                     <label>DNS DoH 地址 (UDP 53 转发)</label>
                     <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
                     <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求。</span></div>
+                </div>
+                
+                <div class="form-group" style="margin-top:1.5rem; border-top: 1px dashed var(--border); padding-top: 1.5rem;">
+                    <label>控制面板状态 (动态反代伪装开关)</label>
+                    <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
+                        <label class="toggle-switch" style="margin:0"><input type="checkbox" name="panel_enabled" ${cc?.pe ?? true ? 'checked' : ''}> 开启控制面板</label>
+                    </div>
+                    <div class="help-text"><i class="fas fa-shield-alt" style="color:var(--primary);"></i><span>关闭后，非法探测访问（包括根目录和错误的管理路径）将不再返回静态页面，而是完全伪装成你设置的真实网站，彻底隐形！</span></div>
+                    
+                    <div id="proxy-url-input" style="display: none; margin-top: 1rem;">
+                        <label style="color:#ef4444;"><i class="fas fa-mask"></i> 伪装目标网站 (反向代理 URL)</label>
+                        <input type="text" name="proxy_url" value="${cc?.proxyUrl || proxyUrl}" placeholder="例如: https://docs.github.com">
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>当面板关闭时，访客看到的将是这个网站的内容。建议填写一个国外大型的合法网站。如果填错可能导致502错误。若需恢复面板，请手动修改 Cloudflare KV (将 pe 改回 true)。</span></div>
+                    </div>
                 </div>
             </div>
 
@@ -2194,7 +2249,7 @@ async function zxyx(request, env, txt = 'ADD.txt') {
                 const action = url.searchParams.get('action') || 'save';
                 if (!data.ips || !Array.isArray(data.ips)) return new Response(JSON.stringify({ error: 'Invalid IP list' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                 let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
-                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }, klp: 'login' };
+                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }, klp: 'login', pe: pe, proxyUrl: proxyUrl };
                 if (action === 'replace-cf' || action === 'append-cf') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
