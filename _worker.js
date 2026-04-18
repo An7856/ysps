@@ -375,7 +375,7 @@ async function fDnsB(dm, t) {
         const qn = encD(dm);
         const qy = new Uint8Array(12 + qn.length + 4);
         const qv = new DataView(qy.buffer);
-        qv.setUint16(0, crypto.getRandomValues(new Uint16Array(1))[0]);
+        qv.setUint16(0, Math.floor(Math.random() * 65535));
         qv.setUint16(2, 0x0100);
         qv.setUint16(4, 1);
         qy.set(qn, 12);
@@ -438,6 +438,7 @@ async function fEchC(h) {
             const b = a.rd;
             let o = 2;
             while (o < b.length) {
+                if ((b[o] & 0xC0) === 0xC0) { o += 2; break; }
                 const l = b[o];
                 if (l === 0) { o++; break; }
                 o += l + 1;
@@ -446,7 +447,12 @@ async function fEchC(h) {
                 const k = (b[o] << 8) | b[o+1];
                 const l = (b[o+2] << 8) | b[o+3];
                 o += 4;
-                if (k === 5) return btoa(String.fromCharCode(...b.slice(o, o + l)));
+                if (k === 5) {
+                    const chunk = b.slice(o, o + l);
+                    let bin = '';
+                    for(let i=0; i<chunk.length; i++) bin += String.fromCharCode(chunk[i]);
+                    return btoa(bin);
+                }
                 o += l;
             }
         }
@@ -976,10 +982,10 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 function pClsC(y, u, e, eS) {
     let r = y.replace(/mode:\s*Rule\b/g, 'mode: rule');
     if(!e) return r;
-    const bRx = new RegExp(`^(\\s*)(password|uuid):\\s*${u}`, 'gm');
-    r = r.replace(bRx, `$1$2: ${u}\n$1ech-opts:\n$1  enable: true\n$1  query-server-name: ${eS}`);
-    const fRx = new RegExp(`(\\{[^}]*(?:password|uuid):\\s*${u}[^}]*)\\}`, 'g');
-    r = r.replace(fRx, `$1, ech-opts: {enable: true, query-server-name: ${eS}}}`);
+    const bRx = new RegExp(`^(\\s*)(password|uuid):\\s*["']?${u}["']?`, 'gmi');
+    r = r.replace(bRx, `$1$2: ${u}\n$1client-fingerprint: chrome\n$1ech-opts:\n$1  enable: true\n$1  pq-signature-schemes-enabled: true\n$1  query-server-name: ${eS}`);
+    const fRx = new RegExp(`(\\{[^}]*(?:password|uuid):\\s*["']?${u}["']?[^}]*)\\}`, 'gi');
+    r = r.replace(fRx, `$1, client-fingerprint: chrome, ech-opts: {enable: true, pq-signature-schemes-enabled: true, query-server-name: ${eS}}}`);
     return r;
 }
 
@@ -1073,20 +1079,20 @@ async function pSbxC(sOriSub, cJson) {
             }
         });
 
-        if (cJson.ech && cJson.echSni) {
+        if (cJson.ech) {
             const ec = await fEchC(cJson.echSni);
-            if (ec) {
-                cfg.outbounds.forEach(ob => {
-                    if (ob && (ob.type === 'vless' || ob.type === 'trojan' || ob.type === 'vmess' || ob.type === 'shadowsocks')) {
-                        if (!ob.tls.ech) ob.tls.ech = { enabled: true };
-                        ob.tls.ech.config = `-----BEGIN ECH CONFIGS-----\n${ec}\n-----END ECH CONFIGS-----`;
-                    }
-                });
-            }
+            cfg.outbounds.forEach(ob => {
+                if (ob && (ob.type === 'vless' || ob.type === 'trojan' || ob.type === 'vmess' || ob.type === 'shadowsocks')) {
+                    if (!ob.tls) ob.tls = { enabled: true };
+                    if (!ob.tls.ech) ob.tls.ech = { enabled: true };
+                    ob.tls.ech.pq_signature_schemes_enabled = true;
+                    if (ec) ob.tls.ech.config = [ec];
+                }
+            });
         }
 		return JSON.stringify(cfg, null, 2);
 	} catch (e) { 
-        return JSON.stringify(JSON.parse(sbJsonText), null, 2); 
+        return sOriSub;
     }
 }
 
@@ -1155,7 +1161,7 @@ async function sub(req) {
     if (target === 'clash' || target === 'singbox') {
         const backend = cc?.dyhd || dyhd;
         const config = cc?.dypz || dypz;
-        const rawSubUrl = `https://${host}/${uid}`;
+        const rawSubUrl = `https://${host}/${uid}?t=${Date.now()}`;
         const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&scv=false`;
         try {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
