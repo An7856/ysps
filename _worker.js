@@ -334,36 +334,136 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     return true;
 }
 
-async function queryDoH(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
-    try {
-        let url = doh;
-        if (!url.includes('?')) url += '?'; else url += '&';
-        url += `name=${domain}&type=${type}`;
-        const res = await fetch(url, { headers: { 'Accept': 'application/dns-json' } });
-        if (!res.ok) {
-            const fallback = `https://cloudflare-dns.com/dns-query?name=${domain}&type=${type}`;
-            const res2 = await fetch(fallback, { headers: { 'Accept': 'application/dns-json' } });
-            if (!res2.ok) return [];
-            const data2 = await res2.json();
-            return (data2.Status === 0 && data2.Answer) ? data2.Answer : [];
-        }
-        const data = await res.json();
-        return (data.Status === 0 && data.Answer) ? data.Answer : [];
-    } catch (e) { return []; }
+async function DoH查询(域名, 记录类型, DoH解析服务 = cc?.dns || "https://cloudflare-dns.com/dns-query") {
+	try {
+		const 类型映射 = { 'A': 1, 'NS': 2, 'CNAME': 5, 'MX': 15, 'TXT': 16, 'AAAA': 28, 'SRV': 33, 'HTTPS': 65 };
+		const qtype = 类型映射[记录类型.toUpperCase()] || 1;
+		const 编码域名 = (name) => {
+			const parts = name.endsWith('.') ? name.slice(0, -1).split('.') : name.split('.');
+			const bufs = [];
+			for (const label of parts) {
+				const enc = new TextEncoder().encode(label);
+				bufs.push(new Uint8Array([enc.length]), enc);
+			}
+			bufs.push(new Uint8Array([0]));
+			const total = bufs.reduce((s, b) => s + b.length, 0);
+			const result = new Uint8Array(total);
+			let off = 0;
+			for (const b of bufs) { result.set(b, off); off += b.length }
+			return result;
+		};
+		const qname = 编码域名(域名);
+		const query = new Uint8Array(12 + qname.length + 4);
+		const qview = new DataView(query.buffer);
+		qview.setUint16(0, 0);       
+		qview.setUint16(2, 0x0100);  
+		qview.setUint16(4, 1);       
+		query.set(qname, 12);
+		qview.setUint16(12 + qname.length, qtype);
+		qview.setUint16(12 + qname.length + 2, 1); 
+		const response = await fetch(DoH解析服务, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/dns-message',
+				'Accept': 'application/dns-message',
+			},
+			body: query,
+		});
+		if (!response.ok) {
+			return [];
+		}
+		const buf = new Uint8Array(await response.arrayBuffer());
+		const dv = new DataView(buf.buffer);
+		const qdcount = dv.getUint16(4);
+		const ancount = dv.getUint16(6);
+		const 解析域名 = (pos) => {
+			const labels = [];
+			let p = pos, jumped = false, endPos = -1, safe = 128;
+			while (p < buf.length && safe-- > 0) {
+				const len = buf[p];
+				if (len === 0) { if (!jumped) endPos = p + 1; break }
+				if ((len & 0xC0) === 0xC0) {
+					if (!jumped) endPos = p + 2;
+					p = ((len & 0x3F) << 8) | buf[p + 1];
+					jumped = true;
+					continue;
+				}
+				labels.push(new TextDecoder().decode(buf.slice(p + 1, p + 1 + len)));
+				p += len + 1;
+			}
+			if (endPos === -1) endPos = p + 1;
+			return [labels.join('.'), endPos];
+		};
+		let offset = 12;
+		for (let i = 0; i < qdcount; i++) {
+			const [, end] = 解析域名(offset);
+			offset = (end) + 4; 
+		}
+		const answers = [];
+		for (let i = 0; i < ancount && offset < buf.length; i++) {
+			const [name, nameEnd] = 解析域名(offset);
+			offset = (nameEnd);
+			const type = dv.getUint16(offset); offset += 2;
+			offset += 2; 
+			const ttl = dv.getUint32(offset); offset += 4;
+			const rdlen = dv.getUint16(offset); offset += 2;
+			const rdata = buf.slice(offset, offset + rdlen);
+			offset += rdlen;
+			let data;
+			if (type === 1 && rdlen === 4) {
+				data = `${rdata[0]}.${rdata[1]}.${rdata[2]}.${rdata[3]}`;
+			} else if (type === 28 && rdlen === 16) {
+				const segs = [];
+				for (let j = 0; j < 16; j += 2) segs.push(((rdata[j] << 8) | rdata[j + 1]).toString(16));
+				data = segs.join(':');
+			} else if (type === 16) {
+				let tOff = 0;
+				const parts = [];
+				while (tOff < rdlen) {
+					const tLen = rdata[tOff++];
+					parts.push(new TextDecoder().decode(rdata.slice(tOff, tOff + tLen)));
+					tOff += tLen;
+				}
+				data = parts.join('');
+			} else if (type === 5) {
+				const [cname] = 解析域名(offset - rdlen);
+				data = cname;
+			} else {
+				data = Array.from(rdata).map(b => b.toString(16).padStart(2, '0')).join('');
+			}
+			answers.push({ name, type, TTL: ttl, data, rdata });
+		}
+		return answers;
+	} catch (error) {
+		return [];
+	}
 }
 
 async function getECH(host) {
-    try {
-        const answers = await queryDoH(host, 'HTTPS');
-        if (!answers.length) return '';
-        for (const ans of answers) {
-            if (ans.type === 65 && ans.data) {
-                const match = ans.data.match(/ech="([^"]+)"/);
-                if (match) return match[1];
-            }
-        }
-        return '';
-    } catch { return ''; }
+	try {
+		const answers = await DoH查询(host, 'HTTPS');
+		if (!answers.length) return '';
+		for (const ans of answers) {
+			if (ans.type !== 65 || !ans.rdata) continue;
+			const bytes = ans.rdata;
+			let offset = 2; 
+			while (offset < bytes.length) {
+				const len = bytes[offset];
+				if (len === 0) { offset++; break }
+				offset += len + 1;
+			}
+			while (offset + 4 <= bytes.length) {
+				const key = (bytes[offset] << 8) | bytes[offset + 1];
+				const len = (bytes[offset + 2] << 8) | bytes[offset + 3];
+				offset += 4;
+				if (key === 5) return btoa(String.fromCharCode(...bytes.slice(offset, offset + len)));
+				offset += len;
+			}
+		}
+		return '';
+	} catch {
+		return '';
+	}
 }
 
 async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
@@ -389,7 +489,7 @@ async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
             }
             if (addr.includes('.william')) {
                 try {
-                    let txtRecords = await queryDoH(addr, 'TXT');
+                    let txtRecords = await DoH查询(addr, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
                     if (txtData.length > 0) {
                         let data = txtData[0];
@@ -943,9 +1043,7 @@ function patchClashConfig(clashYaml, configJson) {
                     braceCount += (lines[i].match(/\{/g) || []).length - (lines[i].match(/\}/g) || []).length;
                 }
                 
-                // 重点：注入 client-fingerprint 和 ech-opts
                 let injection = `, client-fingerprint: chrome, ech-opts: {enable: true${ECH_SNI ? `, query-server-name: ${ECH_SNI}` : ''}}`;
-                // 为了防止重复注入，先检查是否已经有了
                 if (!fullNode.includes('client-fingerprint:')) {
                     fullNode = fullNode.replace(/\}(\s*)$/, `${injection}}$1`);
                 } else if (!fullNode.includes('ech-opts:')) {
