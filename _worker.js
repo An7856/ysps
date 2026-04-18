@@ -980,120 +980,100 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 }
 
 function pClsC(y, u, e, eS) {
-    let r = y.replace(/mode:\s*Rule\b/g, 'mode: rule');
-    if(!e) return r;
-    const bRx = new RegExp(`^(\\s*)(password|uuid):\\s*["']?${u}["']?`, 'gmi');
+    let r = y.replace(/mode:\s*Rule\b/gi, 'mode: rule');
+    if (!e) return r;
+    const fRx = new RegExp(`(password|uuid):\\s*["']?${u}["']?(?=\\s*[,}])`, 'gi');
+    r = r.replace(fRx, `$1: ${u}, client-fingerprint: chrome, ech-opts: {enable: true, pq-signature-schemes-enabled: true, query-server-name: ${eS}}`);
+    const bRx = new RegExp(`^(\\s*)(password|uuid):\\s*["']?${u}["']?(?=\\s*$)`, 'gmi');
     r = r.replace(bRx, `$1$2: ${u}\n$1client-fingerprint: chrome\n$1ech-opts:\n$1  enable: true\n$1  pq-signature-schemes-enabled: true\n$1  query-server-name: ${eS}`);
-    const fRx = new RegExp(`(\\{[^}]*(?:password|uuid):\\s*["']?${u}["']?[^}]*)\\}`, 'gi');
-    r = r.replace(fRx, `$1, client-fingerprint: chrome, ech-opts: {enable: true, pq-signature-schemes-enabled: true, query-server-name: ${eS}}}`);
     return r;
 }
 
-async function pSbxC(sOriSub, cJson) {
-	const fp = "chrome";
-	const sbJsonText = sOriSub.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
-	try {
-		let cfg = JSON.parse(sbJsonText);
-		if (Array.isArray(cfg.inbounds)) {
-			cfg.inbounds.forEach(ib => {
-				if (ib.type === 'tun') {
-					const ad = [];
-					if (ib.inet4_address) ad.push(ib.inet4_address);
-					if (ib.inet6_address) ad.push(ib.inet6_address);
-					if (ad.length > 0) { ib.address = ad; delete ib.inet4_address; delete ib.inet6_address; }
-					const ra = [];
-					if (Array.isArray(ib.inet4_route_address)) ra.push(...ib.inet4_route_address);
-					if (Array.isArray(ib.inet6_route_address)) ra.push(...ib.inet6_route_address);
-					if (ra.length > 0) { ib.route_address = ra; delete ib.inet4_route_address; delete ib.inet6_route_address; }
-					const rea = [];
-					if (Array.isArray(ib.inet4_route_exclude_address)) rea.push(...ib.inet4_route_exclude_address);
-					if (Array.isArray(ib.inet6_route_exclude_address)) rea.push(...ib.inet6_route_exclude_address);
-					if (rea.length > 0) { ib.route_exclude_address = rea; delete ib.inet4_route_exclude_address; delete ib.inet6_route_exclude_address; }
-				}
-			});
-		}
-		const rsDef = new Map();
-		const pRules = (rs, isDns = false) => {
-			if (!Array.isArray(rs)) return;
-			rs.forEach(r => {
-				if (r.geosite) {
-					const gsList = Array.isArray(r.geosite) ? r.geosite : [r.geosite];
-					r.rule_set = gsList.map(name => {
-						const tag = `geosite-${name}`;
-						if (!rsDef.has(tag)) rsDef.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${name}.srs`, download_detour: "DIRECT" });
-						return tag;
-					});
-					delete r.geosite;
-				}
-				if (r.geoip) {
-					const giList = Array.isArray(r.geoip) ? r.geoip : [r.geoip];
-					r.rule_set = r.rule_set || [];
-					giList.forEach(name => {
-						const tag = `geoip-${name}`;
-						if (!rsDef.has(tag)) rsDef.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${name}.srs`, download_detour: "DIRECT" });
-						r.rule_set.push(tag);
-					});
-					delete r.geoip;
-				}
-				const tf = isDns ? 'server' : 'outbound';
-				const av = String(r[tf]).toUpperCase();
-				if (av === 'REJECT' || av === 'BLOCK') { r.action = 'reject'; r.method = 'drop'; delete r[tf]; }
-			});
-		};
-		if (cfg.dns && cfg.dns.rules) pRules(cfg.dns.rules, true);
-		if (cfg.route && cfg.route.rules) pRules(cfg.route.rules, false);
-		if (rsDef.size > 0) { if (!cfg.route) cfg.route = {}; cfg.route.rule_set = Array.from(rsDef.values()); }
-		
-		if (!Array.isArray(cfg.outbounds)) cfg.outbounds = [];
-		cfg.outbounds = cfg.outbounds.filter(o => o && o.tag !== 'REJECT' && o.tag !== 'block');
-		
-		const eTags = new Set(cfg.outbounds.map(o => o.tag));
-		if (!eTags.has('DIRECT')) { cfg.outbounds.push({ "type": "direct", "tag": "DIRECT" }); eTags.add('DIRECT'); }
-		
-		if (cfg.dns && Array.isArray(cfg.dns.servers)) {
-			const dsTags = new Set(cfg.dns.servers.map(s => s.tag));
-			if (Array.isArray(cfg.dns.rules)) {
-				cfg.dns.rules.forEach(r => {
-					if (r.server && !dsTags.has(r.server)) {
-						if (r.server === 'dns_block' && dsTags.has('block')) r.server = 'block';
-						else if (r.server.toLowerCase().includes('block') && !dsTags.has(r.server)) { cfg.dns.servers.push({ "tag": r.server, "address": "rcode://success" }); dsTags.add(r.server); }
-					}
-				});
-			}
-		}
-		
-		cfg.outbounds.forEach(ob => {
-			if (ob.type === 'selector' || ob.type === 'urltest') {
-				if (Array.isArray(ob.outbounds)) {
-					ob.outbounds = ob.outbounds.filter(tag => { const ut = tag.toUpperCase(); return eTags.has(tag) && ut !== 'REJECT' && ut !== 'BLOCK'; });
-					if (ob.outbounds.length === 0) ob.outbounds.push("DIRECT");
-				}
-			}
-		});
-
-        cfg.outbounds.forEach(ob => {
-            if (ob && (ob.type === 'vless' || ob.type === 'trojan' || ob.type === 'vmess' || ob.type === 'shadowsocks')) {
-                if (typeof ob.tls !== 'object' || ob.tls === null) ob.tls = { enabled: true };
-                else ob.tls.enabled = true;
-                ob.tls.utls = { enabled: true, fingerprint: fp };
+async function pSbxC(o, c) {
+    let f;
+    try {
+        f = JSON.parse(o.replace(/1\.1\.1\.1/g, '8.8.8.8').replace(/1\.0\.0\.1/g, '8.8.4.4'));
+    } catch (e) {
+        return o;
+    }
+    try {
+        const rd = new Map();
+        const pr = (r, isD) => {
+            if (!Array.isArray(r)) return;
+            r.forEach(x => {
+                if (x.geosite) {
+                    const gl = Array.isArray(x.geosite) ? x.geosite : [x.geosite];
+                    x.rule_set = gl.map(n => {
+                        const t = `geosite-${n}`;
+                        if (!rd.has(t)) rd.set(t, { tag: t, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${n}.srs`, download_detour: "DIRECT" });
+                        return t;
+                    });
+                    delete x.geosite;
+                }
+                if (x.geoip) {
+                    const gi = Array.isArray(x.geoip) ? x.geoip : [x.geoip];
+                    x.rule_set = x.rule_set || [];
+                    gi.forEach(n => {
+                        const t = `geoip-${n}`;
+                        if (!rd.has(t)) rd.set(t, { tag: t, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${n}.srs`, download_detour: "DIRECT" });
+                        x.rule_set.push(t);
+                    });
+                    delete x.geoip;
+                }
+                const tf = isD ? 'server' : 'outbound';
+                const av = String(x[tf]).toUpperCase();
+                if (av === 'REJECT' || av === 'BLOCK') { x.action = 'reject'; x.method = 'drop'; delete x[tf]; }
+            });
+        };
+        if (f.dns && f.dns.rules) pr(f.dns.rules, true);
+        if (f.route && f.route.rules) pr(f.route.rules, false);
+        if (rd.size > 0) { if (!f.route) f.route = {}; f.route.rule_set = Array.from(rd.values()); }
+        if (!Array.isArray(f.outbounds)) f.outbounds = [];
+        f.outbounds = f.outbounds.filter(b => b && b.tag !== 'REJECT' && b.tag !== 'block');
+        const et = new Set(f.outbounds.map(b => b.tag));
+        if (!et.has('DIRECT')) { f.outbounds.push({ "type": "direct", "tag": "DIRECT" }); et.add('DIRECT'); }
+        if (f.dns && Array.isArray(f.dns.servers)) {
+            const ds = new Set(f.dns.servers.map(s => s.tag));
+            if (Array.isArray(f.dns.rules)) {
+                f.dns.rules.forEach(r => {
+                    if (r.server && !ds.has(r.server)) {
+                        if (r.server === 'dns_block' && ds.has('block')) r.server = 'block';
+                        else if (r.server.toLowerCase().includes('block') && !ds.has(r.server)) { f.dns.servers.push({ "tag": r.server, "address": "rcode://success" }); ds.add(r.server); }
+                    }
+                });
+            }
+        }
+        f.outbounds.forEach(ob => {
+            if (ob.type === 'selector' || ob.type === 'urltest') {
+                if (Array.isArray(ob.outbounds)) {
+                    ob.outbounds = ob.outbounds.filter(t => { const ut = t.toUpperCase(); return et.has(t) && ut !== 'REJECT' && ut !== 'BLOCK'; });
+                    if (ob.outbounds.length === 0) ob.outbounds.push("DIRECT");
+                }
             }
         });
+    } catch(e) {}
 
-        if (cJson.ech) {
-            const ec = await fEchC(cJson.echSni);
-            cfg.outbounds.forEach(ob => {
-                if (ob && (ob.type === 'vless' || ob.type === 'trojan' || ob.type === 'vmess' || ob.type === 'shadowsocks')) {
-                    if (!ob.tls) ob.tls = { enabled: true };
-                    if (!ob.tls.ech) ob.tls.ech = { enabled: true };
-                    ob.tls.ech.pq_signature_schemes_enabled = true;
-                    if (ec) ob.tls.ech.config = [ec];
+    try {
+        let ec = '';
+        if (c.ech && c.echSni) ec = await fEchC(c.echSni);
+        if (Array.isArray(f.outbounds)) {
+            f.outbounds.forEach(ob => {
+                if (ob && ['vless', 'trojan', 'vmess', 'shadowsocks'].includes(ob.type)) {
+                    if (!ob.tls || typeof ob.tls !== 'object') ob.tls = {};
+                    ob.tls.enabled = true;
+                    ob.tls.utls = { enabled: true, fingerprint: "chrome" };
+                    if (c.ech) {
+                        if (!ob.tls.ech || typeof ob.tls.ech !== 'object') ob.tls.ech = {};
+                        ob.tls.ech.enabled = true;
+                        ob.tls.ech.pq_signature_schemes_enabled = true;
+                        if (ec) ob.tls.ech.config = [ec];
+                    }
                 }
             });
         }
-		return JSON.stringify(cfg, null, 2);
-	} catch (e) { 
-        return sOriSub;
-    }
+    } catch(e) {}
+    
+    return JSON.stringify(f, null, 2);
 }
 
 async function genSurgeConfig(u, url) {
