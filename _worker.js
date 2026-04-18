@@ -1,21 +1,21 @@
 import { connect } from 'cloudflare:sockets';
 
-let defaultPath = 'dylj';
-let fallbackIps = [''];
-let adminUuid = '';
-let cfIps = ['ip.sb', 'time.is', 'cdns.doon.eu.org'];
-let customDns = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
-let subBackend = atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw==');
-let subConfig = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ==');
-let surgeTemplate = '';
+let p = 'dylj';
+let fdc = [''];
+let uid = '';
+let yx = ['ip.sb', 'time.is', 'cdns.doon.eu.org'];
+let dns = 'https://sky.rethinkdns.com/1:-Pf_____9_8A_AMAIgE8kMABVDDmKOHTAKg=';
+let dyhd = atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw==');
+let dypz = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ==');
+let stp = '';
 let proxyUrl = 'https://docs.github.com';
 const KP = 'admin_password', KU = 'user_uuid', K_SETTINGS = 'SYSTEM_CONFIG';
-let sysConfig = null, configTime = 0, CACHE_DUR = 60 * 1000;
-const STALE_DUR = 60 * 60 * 1000;
+let cc = null, ct = 0, CD = 60 * 1000;
+const STALE_CD = 60 * 60 * 1000;
 const loginAttempts = new Map();
-const SESS_DUR = 8 * 60 * 60 * 1000;
-let enableVless = true, enableTrojan = false, trojanPwd = '', panelEnabled = true;
-let enableEch = false, echSni = 'cloudflare-ech.com';
+const SESSION_DURATION = 8 * 60 * 60 * 1000;
+let ev = true, et = false, tp = '', pe = true;
+let protocolConfig = { ev, et, tp };
 let globalTimeout = 8000;
 let cachedUsage = null;
 let lastUsageTime = 0;
@@ -118,24 +118,23 @@ const ConfigUtils = {
     async loadAllConfig(env) {
         const kv = env.SJ || env.sj;
         const defaultConfig = {
-            cfIps: cfIps, fallbackIps: fallbackIps, adminUuid: adminUuid, subBackend: subBackend, subConfig: subConfig, surgeTemplate: '', customDns: customDns, proxyUrl: proxyUrl,
-            enableVless: true, enableTrojan: false, trojanPwd: '', panelEnabled: true, enableEch: false, echSni: 'cloudflare-ech.com',
-            loginPath: 'login', uuidSet: new Set(adminUuid.split(',').map(s => s.trim().toLowerCase())),
+            yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns, proxyUrl: proxyUrl,
+            ev: true, et: false, tp: '', pe: true,
+            klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
             cfConfig: {}, proxyConfig: {}
         };
         if (!kv) return defaultConfig;
         try {
             const unifiedConfig = await kv.get(K_SETTINGS, 'json');
             if (unifiedConfig) {
-                const configUid = unifiedConfig.adminUuid || adminUuid;
+                const configUid = unifiedConfig.uid || uid;
                 return {
-                    cfIps: unifiedConfig.cfIps || cfIps, fallbackIps: unifiedConfig.fallbackIps || fallbackIps, adminUuid: configUid,
-                    subBackend: unifiedConfig.subBackend || subBackend, subConfig: unifiedConfig.subConfig || subConfig, surgeTemplate: unifiedConfig.surgeTemplate || '', customDns: unifiedConfig.customDns || customDns, proxyUrl: unifiedConfig.proxyUrl || proxyUrl,
-                    enableVless: unifiedConfig.protocolConfig?.enableVless ?? true, enableTrojan: unifiedConfig.protocolConfig?.enableTrojan ?? false, trojanPwd: unifiedConfig.protocolConfig?.trojanPwd ?? '',
-                    panelEnabled: unifiedConfig.panelEnabled ?? true,
-                    enableEch: unifiedConfig.echConfig?.enableEch ?? false, echSni: unifiedConfig.echConfig?.echSni ?? 'cloudflare-ech.com',
+                    yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
+                    dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns, proxyUrl: unifiedConfig.proxyUrl || proxyUrl,
+                    ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
+                    pe: unifiedConfig.pe ?? true,
                     cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {},
-                    loginPath: unifiedConfig.loginPath || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
+                    klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
                 };
             }
         } catch (e) {}
@@ -148,113 +147,14 @@ const ErrorHandler = {
     unauthorized(message = 'Unauthorized') { return ResponseBuilder.text(message, 401); }
 };
 
-async function queryDoHRaw(domain, type, doh = 'https://cloudflare-dns.com/dns-query') {
-    const typeMap = { 'A': 1, 'NS': 2, 'CNAME': 5, 'MX': 15, 'TXT': 16, 'AAAA': 28, 'SRV': 33, 'HTTPS': 65 };
-    const qtype = typeMap[type.toUpperCase()] || 1;
-    const encDomain = (name) => {
-        const parts = name.endsWith('.') ? name.slice(0, -1).split('.') : name.split('.');
-        const bufs = [];
-        for (const label of parts) {
-            const enc = new TextEncoder().encode(label);
-            bufs.push(new Uint8Array([enc.length]), enc);
-        }
-        bufs.push(new Uint8Array([0]));
-        const total = bufs.reduce((s, b) => s + b.length, 0);
-        const result = new Uint8Array(total);
-        let off = 0;
-        for (const b of bufs) { result.set(b, off); off += b.length; }
-        return result;
-    };
-    const qname = encDomain(domain);
-    const query = new Uint8Array(12 + qname.length + 4);
-    const qview = new DataView(query.buffer);
-    qview.setUint16(0, crypto.getRandomValues(new Uint16Array(1))[0]);
-    qview.setUint16(2, 0x0100);
-    qview.setUint16(4, 1);
-    query.set(qname, 12);
-    qview.setUint16(12 + qname.length, qtype);
-    qview.setUint16(12 + qname.length + 2, 1);
-    try {
-        const response = await fetch(doh, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/dns-message', 'Accept': 'application/dns-message' },
-            body: query,
-        });
-        if (!response.ok) return [];
-        const buf = new Uint8Array(await response.arrayBuffer());
-        const dv = new DataView(buf.buffer);
-        const qdcount = dv.getUint16(4);
-        const ancount = dv.getUint16(6);
-        const parseName = (pos) => {
-            let p = pos, jumped = false, endPos = -1, safe = 128;
-            while (p < buf.length && safe-- > 0) {
-                const len = buf[p];
-                if (len === 0) { if (!jumped) endPos = p + 1; break; }
-                if ((len & 0xC0) === 0xC0) {
-                    if (!jumped) endPos = p + 2;
-                    p = ((len & 0x3F) << 8) | buf[p + 1];
-                    jumped = true;
-                    continue;
-                }
-                p += len + 1;
-            }
-            if (endPos === -1) endPos = p + 1;
-            return endPos;
-        };
-        let offset = 12;
-        for (let i = 0; i < qdcount; i++) {
-            const end = parseName(offset);
-            offset = end + 4;
-        }
-        const answers = [];
-        for (let i = 0; i < ancount && offset < buf.length; i++) {
-            const nameEnd = parseName(offset);
-            offset = nameEnd;
-            const rType = dv.getUint16(offset); offset += 2;
-            offset += 2;
-            const ttl = dv.getUint32(offset); offset += 4;
-            const rdlen = dv.getUint16(offset); offset += 2;
-            const rdata = buf.slice(offset, offset + rdlen);
-            offset += rdlen;
-            answers.push({ type: rType, TTL: ttl, rdata });
-        }
-        return answers;
-    } catch (error) { return []; }
-}
-
-async function fetchECH(host) {
-    try {
-        const answers = await queryDoHRaw(host, 'HTTPS');
-        if (!answers.length) return '';
-        for (const ans of answers) {
-            if (ans.type !== 65 || !ans.rdata) continue;
-            const bytes = ans.rdata;
-            let offset = 2;
-            while (offset < bytes.length) {
-                const len = bytes[offset];
-                if (len === 0) { offset++; break; }
-                offset += len + 1;
-            }
-            while (offset + 4 <= bytes.length) {
-                const key = (bytes[offset] << 8) | bytes[offset + 1];
-                const len = (bytes[offset + 2] << 8) | bytes[offset + 3];
-                offset += 4;
-                if (key === 5) return btoa(String.fromCharCode(...bytes.slice(offset, offset + len)));
-                offset += len;
-            }
-        }
-        return '';
-    } catch { return ''; }
-}
-
-async function getPwd(env) {
+async function gP(env) {
     if (cachedAdminPwd) return cachedAdminPwd;
     const kv = env.SJ || env.sj;
     cachedAdminPwd = kv ? await kv.get(KP) : null;
     return cachedAdminPwd;
 }
 
-async function setPwd(env, pw) {
+async function sP(env, pw) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     await kv.put(KP, pw);
@@ -262,12 +162,12 @@ async function setPwd(env, pw) {
     return true;
 }
 
-async function getUuid(env) {
+async function gU(env) {
     const kv = env.SJ || env.sj;
     return kv ? await kv.get(KU) : null;
 }
 
-async function setUuid(env, u) {
+async function sU(env, u) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     await kv.put(KU, u);
@@ -275,7 +175,7 @@ async function setUuid(env, u) {
 }
 
 async function signToken(env, exp) {
-    const pwd = await getPwd(env) || 'default';
+    const pwd = await gP(env) || 'default';
     const msg = `${exp}:${pwd}`;
     const msgUint8 = new TextEncoder().encode(msg);
     const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
@@ -292,14 +192,14 @@ async function validateAndRefreshSession(env, token) {
         const exp = parseInt(expStr);
         const now = Date.now();
         if (now > exp) return { valid: false };
-        const pwd = await getPwd(env) || 'default';
+        const pwd = await gP(env) || 'default';
         const msg = `${exp}:${pwd}`;
         const msgUint8 = new TextEncoder().encode(msg);
         const hashBuffer = await crypto.subtle.digest('SHA-256', msgUint8);
         const expectedHash = Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
         if (hashHex !== expectedHash) return { valid: false };
         if (exp - now < 30 * 60 * 1000) {
-            const newExp = now + SESS_DUR;
+            const newExp = now + SESSION_DURATION;
             const newToken = await signToken(env, newExp);
             return { valid: true, refreshed: true, newToken };
         }
@@ -318,7 +218,7 @@ function getSessionCookie(cookieHeader) {
 }
 
 function setSessionCookie(token) {
-    const expires = new Date(Date.now() + SESS_DUR).toUTCString();
+    const expires = new Date(Date.now() + SESSION_DURATION).toUTCString();
     return `cf_worker_session=${token}; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=${expires}`;
 }
 
@@ -347,15 +247,15 @@ async function handleLogin(req, env) {
         if (now - data.time > 60000) loginAttempts.delete(ip);
     }
     const attempt = loginAttempts.get(clientIp) || { count: 0, time: 0 };
-    if (attempt.count > 5 && (now - attempt.time) < 60000) return ResponseBuilder.text('Too many attempts', 429);
+    if (attempt.count > 5 && (now - attempt.time) < 60000) return ResponseBuilder.text('尝试次数过多，请稍后再试', 429);
     if (req.method === 'POST') {
         const form = await req.formData();
         const password = form.get('password');
-        const storedPassword = await getPwd(env);
+        const storedPassword = await gP(env);
         if (password === storedPassword) {
             loginAttempts.delete(clientIp);
-            const newToken = await signToken(env, Date.now() + SESS_DUR);
-            const response = await getMainPageContent(host, base, storedPassword, await getUuid(env), env);
+            const newToken = await signToken(env, Date.now() + SESSION_DURATION);
+            const response = await getMainPageContent(host, base, storedPassword, await gU(env), env);
             response.headers.set('Set-Cookie', setSessionCookie(newToken));
             return response;
         } else {
@@ -375,7 +275,7 @@ async function handleLogout(req, env) {
 
 async function optimizeConfigLoading(env, ctx) {
     const now = Date.now();
-    if (sysConfig && (now - configTime) < CACHE_DUR) return sysConfig;
+    if (cc && (now - ct) < CD) return cc;
     const loadConfigTask = async () => {
         try {
             if (env.CONNECT_TIMEOUT) globalTimeout = parseInt(env.CONNECT_TIMEOUT) || 8000;
@@ -383,60 +283,58 @@ async function optimizeConfigLoading(env, ctx) {
             const newConfig = {
                 ...config,
                 timestamp: now,
-                parsedIPs: config.cfIps.map(ip => IPParser.parsePreferredIP(ip)),
-                validFDCs: config.fallbackIps.filter(s => s && s.trim() !== '')
+                parsedIPs: config.yx.map(ip => IPParser.parsePreferredIP(ip)),
+                validFDCs: config.fdc.filter(s => s && s.trim() !== '')
             };
-            sysConfig = newConfig;
-            configTime = now;
-            cfIps = sysConfig.cfIps; fallbackIps = sysConfig.fallbackIps; adminUuid = sysConfig.adminUuid; subBackend = sysConfig.subBackend; subConfig = sysConfig.subConfig; surgeTemplate = sysConfig.surgeTemplate; customDns = sysConfig.customDns || customDns; proxyUrl = sysConfig.proxyUrl || proxyUrl;
-            enableVless = sysConfig.enableVless; enableTrojan = sysConfig.enableTrojan; trojanPwd = sysConfig.trojanPwd; panelEnabled = sysConfig.panelEnabled ?? true;
-            enableEch = sysConfig.enableEch ?? false; echSni = sysConfig.echSni ?? 'cloudflare-ech.com';
-            return sysConfig;
+            cc = newConfig;
+            ct = now;
+            yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns; proxyUrl = cc.proxyUrl || proxyUrl;
+            ev = cc.ev; et = cc.et; tp = cc.tp; pe = cc.pe ?? true;
+            protocolConfig = { ev, et, tp };
+            return cc;
         } catch (error) {
-            if (sysConfig) return sysConfig;
+            if (cc) return cc;
             return {
-                cfIps: cfIps, fallbackIps: fallbackIps, adminUuid: adminUuid, subBackend: subBackend, subConfig: subConfig, surgeTemplate: surgeTemplate, customDns: customDns, proxyUrl: proxyUrl,
-                enableVless: enableVless, enableTrojan: enableTrojan, trojanPwd: trojanPwd, panelEnabled: panelEnabled, enableEch: enableEch, echSni: echSni,
-                parsedIPs: cfIps.map(ip => IPParser.parsePreferredIP(ip)),
-                validFDCs: fallbackIps.filter(s => s && s.trim() !== ''),
-                uuidSet: new Set(adminUuid.split(',').map(s => s.trim().toLowerCase())),
+                yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns, proxyUrl: proxyUrl,
+                ev: ev, et: et, tp: tp, pe: pe,
+                parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
+                validFDCs: fdc.filter(s => s && s.trim() !== ''),
+                uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
                 proxyConfig: {}
             };
         }
     };
-    if (sysConfig && (now - configTime) < STALE_DUR && ctx) {
+    if (cc && (now - ct) < STALE_CD && ctx) {
         ctx.waitUntil(loadConfigTask().catch(console.error));
-        return sysConfig;
+        return cc;
     }
     return await loadConfigTask();
 }
 
-async function saveConfigToKV(env, cfArr, fbArr, u = null, protoCfg = null, cfCfg = null, pxyCfg = null, lPath = null, nBackend = null, nConfig = null, nSurge = null, nDns = null, pEnabled = true, nProxyUrl = null, echCfg = null) {
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, peVal = true, newProxyUrl = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
-        cfIps: cfArr, fallbackIps: fbArr, adminUuid: u || adminUuid, subBackend: nBackend || subBackend, subConfig: nConfig || subConfig, surgeTemplate: nSurge || surgeTemplate, customDns: nDns || customDns, proxyUrl: nProxyUrl || proxyUrl,
-        protocolConfig: protoCfg || { enableVless, enableTrojan, trojanPwd },
-        echConfig: echCfg || { enableEch, echSni },
-        cfConfig: cfCfg || {}, proxyConfig: pxyCfg || {},
-        loginPath: lPath || 'login', panelEnabled: pEnabled
+        yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns, proxyUrl: newProxyUrl || proxyUrl,
+        protocolConfig: protocolCfg || { ev, et, tp },
+        cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {},
+        klp: klp || 'login', pe: peVal
     };
     const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
     if (u) ps.push(kv.put(KU, u));
-    if (lPath) ps.push(kv.put(KP, await getPwd(env)));
+    if (klp) ps.push(kv.put(KP, await gP(env)));
     await Promise.all(ps);
-    const uuidSet = new Set((u || adminUuid).split(',').map(s => s.trim().toLowerCase()));
-    sysConfig = {
+    const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
+    cc = {
         ...unifiedConfig, timestamp: Date.now(),
-        enableVless: unifiedConfig.protocolConfig.enableVless, enableTrojan: unifiedConfig.protocolConfig.enableTrojan, trojanPwd: unifiedConfig.protocolConfig.trojanPwd, panelEnabled: pEnabled,
-        enableEch: unifiedConfig.echConfig.enableEch, echSni: unifiedConfig.echConfig.echSni,
-        parsedIPs: cfArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fbArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
+        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp, pe: peVal,
+        parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fdipArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
     };
-    configTime = Date.now();
+    ct = Date.now();
     return true;
 }
 
-async function queryDoH(domain, type, doh = sysConfig?.customDns || 'https://cloudflare-dns.com/dns-query') {
+async function queryDoH(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         let url = doh;
         if (!url.includes('?')) url += '?'; else url += '&';
@@ -527,10 +425,10 @@ async function connectWithTimeout(host, port, timeoutMs) {
     }
 }
 
-async function universalConnectWithFailover(targetHost = 'www.google.com') {
-    let valid = sysConfig?.validFDCs || fallbackIps.filter(s => s && s.trim() !== '');
+async function universalConnectWithFailover(targetHost = 'www.google.com', targetPort = 443) {
+    let valid = cc?.validFDCs || fdc.filter(s => s && s.trim() !== '');
     if (valid.length === 0) valid = ['www.visa.com.sg'];
-    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, adminUuid);
+    const resolvedList = await resolveAddressAndPort(valid.join(','), targetHost, uid);
     if(resolvedList.length === 0) resolvedList.push([valid[0], 443]);
     const PRIMARY_TIMEOUT = 2000, BACKUP_TIMEOUT = 1500;
     const now = Date.now();
@@ -753,8 +651,8 @@ async function httpConnect(targetHost, targetPort, initialData, isHttps = false,
 }
 
 async function forwardTCP(host, portNum, rawData, ws, respHeader, remoteConnWrapper, yourUUID, proxyCtx) {
-    const proxyEnabled = proxyCtx?.enableType || (sysConfig?.proxyConfig?.enabled ? sysConfig?.proxyConfig?.type : null);
-    const proxyGlobal = proxyCtx?.global ?? sysConfig?.proxyConfig?.global;
+    const proxyEnabled = proxyCtx?.enableType || (cc?.proxyConfig?.enabled ? cc?.proxyConfig?.type : null);
+    const proxyGlobal = proxyCtx?.global ?? cc?.proxyConfig?.global;
     const proxyAddress = proxyCtx?.parsedAddress;
 
     const tryDirect = async (data) => {
@@ -951,7 +849,7 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 			}
 			if (await writeRemote(chunk)) return;
 			if (protocolType === 'TJ') {
-				const pRes = parseTJReq(chunk, trojanPwd || yourUUID);
+				const pRes = parseTJReq(chunk, tp || yourUUID);
 				if (pRes?.hasError) throw new Error(pRes.message);
 				const { port, hostname, rawClientData } = pRes;
 				if (isSpeedTestSite(hostname)) throw new Error('Speedtest site is blocked');
@@ -975,55 +873,6 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 
 function patchClashConfig(clashYaml, configJson) {
     let yamlStr = clashYaml.replace(/mode:\s*Rule\b/g, 'mode: rule');
-    if (enableEch && echSni && configJson.uid) {
-        const lines = yamlStr.split('\n');
-        const processedLines = [];
-        let i = 0;
-        while (i < lines.length) {
-            const line = lines[i];
-            const trimmedLine = line.trim();
-            if (trimmedLine.startsWith('- {')) {
-                let fullNode = line;
-                if (fullNode.includes(configJson.uid)) {
-                    fullNode = fullNode.replace(/\}(\s*)$/, `, ech-opts: {enable: true, query-server-name: ${echSni}}}$1`);
-                }
-                processedLines.push(fullNode);
-                i++;
-            } else if (trimmedLine.startsWith('- name:')) {
-                let nodeLines = [line];
-                let baseIndent = line.search(/\S/);
-                let topLevelIndent = baseIndent + 2;
-                i++;
-                let hasUid = false;
-                while (i < lines.length) {
-                    const nextLine = lines[i];
-                    const nextTrimmed = nextLine.trim();
-                    if (!nextTrimmed) { nodeLines.push(nextLine); i++; break; }
-                    const nextIndent = nextLine.search(/\S/);
-                    if (nextIndent <= baseIndent && nextTrimmed.startsWith('- ')) break;
-                    if (nextIndent < baseIndent && nextTrimmed) break;
-                    if (nextLine.includes(configJson.uid)) hasUid = true;
-                    nodeLines.push(nextLine);
-                    i++;
-                }
-                if (hasUid) {
-                    let insertIndex = -1;
-                    for (let j = nodeLines.length - 1; j >= 0; j--) {
-                        if (nodeLines[j].trim()) { insertIndex = j; break; }
-                    }
-                    if (insertIndex >= 0) {
-                        const indent = ' '.repeat(topLevelIndent);
-                        nodeLines.splice(insertIndex + 1, 0, `${indent}ech-opts:`, `${indent}  enable: true`, `${indent}  query-server-name: ${echSni}`);
-                    }
-                }
-                processedLines.push(...nodeLines);
-            } else {
-                processedLines.push(line);
-                i++;
-            }
-        }
-        yamlStr = processedLines.join('\n');
-    }
     return yamlStr;
 }
 
@@ -1109,27 +958,14 @@ async function patchSingboxConfig(sOriSub, cJson) {
 			}
 		});
 
-        let echConfigRaw = null;
-        if (enableEch && echSni && cJson.uid) {
-            echConfigRaw = await fetchECH(echSni);
-        }
-
         config.outbounds.forEach(outbound => {
             if (outbound && (outbound.type === 'vless' || outbound.type === 'trojan' || outbound.type === 'vmess' || outbound.type === 'shadowsocks')) {
-                if ((outbound.uuid && outbound.uuid === cJson.uid) || (outbound.password && outbound.password === cJson.uid) || (outbound.password && outbound.password === trojanPwd)) {
-                    if (typeof outbound.tls !== 'object' || outbound.tls === null) {
-                        outbound.tls = { enabled: true };
-                    } else {
-                        outbound.tls.enabled = true;
-                    }
-                    outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
-                    if (echConfigRaw) {
-                        outbound.tls.ech = {
-                            enabled: true,
-                            config: `-----BEGIN ECH CONFIGS-----\n${echConfigRaw}\n-----END ECH CONFIGS-----`
-                        };
-                    }
+                if (typeof outbound.tls !== 'object' || outbound.tls === null) {
+                    outbound.tls = { enabled: true };
+                } else {
+                    outbound.tls.enabled = true;
                 }
+                outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
             }
         });
 
@@ -1143,9 +979,9 @@ async function genSurgeConfig(u, url) {
     if (!u) return '';
     const wp = '/?ed=2560';
     const nodes = []; const nodeNames = [];
-    if (enableTrojan) {
-        const password = trojanPwd || u;
-        cfIps.forEach(item => {
+    if (et) {
+        const password = tp || u;
+        yx.forEach(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return;
             const { hostname, port, displayName } = ipData;
@@ -1153,10 +989,10 @@ async function genSurgeConfig(u, url) {
             nodes.push(nodeConfig); nodeNames.push(displayName);
         });
     }
-    if (nodes.length === 0) return 'Trojan not enabled';
-    if (surgeTemplate) {
+    if (nodes.length === 0) return '未启用Trojan协议';
+    if (stp) {
         try {
-            const response = await fetch(surgeTemplate);
+            const response = await fetch(stp);
             if (response.ok) {
                 let templateContent = await response.text();
                 templateContent = templateContent.replace(/\{nodes\}/g, nodes.join('\n'));
@@ -1172,23 +1008,22 @@ function genConfig(u, url) {
     if (!u) return '';
     const ep = encodeURIComponent('/?ed=2560');
     const links = [];
-    const echStr = enableEch && echSni ? `&ech=${encodeURIComponent(echSni)}` : '';
-    if (enableVless) {
+    if (ev) {
         const hd = 'vless';
-        links.push(...cfIps.map(item => {
+        links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
             const tps = `type=ws&path=${ep}`;
-            return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1${echStr}#${encodeURIComponent('Vless-' + ipData.displayName)}`;
+            return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Vless-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
-    if (enableTrojan) {
-        const hd = 'trojan', password = trojanPwd || u;
-        links.push(...cfIps.map(item => {
+    if (et) {
+        const hd = 'trojan', password = tp || u;
+        links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
             const tps = `type=ws&path=${ep}`;
-            return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1${echStr}#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
+            return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
     return links.join('\n');
@@ -1199,19 +1034,19 @@ async function sub(req) {
     const host = req.headers.get('Host');
     const format = url.searchParams.get('format') || url.searchParams.get('target');
     const target = format;
-    const cfg = genConfig(adminUuid, host);
-    if (target === 'surge') return ResponseBuilder.text(await genSurgeConfig(adminUuid, host));
+    const cfg = genConfig(uid, host);
+    if (target === 'surge') return ResponseBuilder.text(await genSurgeConfig(uid, host));
     if (target === 'clash' || target === 'singbox') {
-        const backend = sysConfig?.subBackend || subBackend;
-        const config = sysConfig?.subConfig || subConfig;
-        const rawSubUrl = `https://${host}/${adminUuid}`;
+        const backend = cc?.dyhd || dyhd;
+        const config = cc?.dypz || dypz;
+        const rawSubUrl = `https://${host}/${uid}`;
         const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&scv=false`;
         try {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
             if (res.ok) {
                 let content = await res.text();
-                if (target === 'clash') content = patchClashConfig(content, { uid: adminUuid, host });
-                if (target === 'singbox') content = await patchSingboxConfig(content, { uid: adminUuid, host });
+                if (target === 'clash') content = patchClashConfig(content, { uid, host });
+                if (target === 'singbox') content = await patchSingboxConfig(content, { uid, host });
                 return ResponseBuilder.text(content);
             }
         } catch(e) {}
@@ -1303,16 +1138,16 @@ async function parseProxyAccount(address) {
             port = 80;
         }
     }
-    if (isNaN(port)) throw new Error(`Port error: ${address}`);
-    if (!hostname) throw new Error('Host missing');
+    if (isNaN(port)) throw new Error(`端口解析错误: ${address}`);
+    if (!hostname) throw new Error('域名/IP为空');
     return { username, password, hostname, port };
 }
 
 async function getCloudflareUsageAPI(env) {
     const now = Date.now();
     if (cachedUsage && (now - lastUsageTime < 300000)) return cachedUsage;
-    if (!sysConfig?.cfConfig) return { success: false, pages: 0, workers: 0, total: 0 };
-    const { accountId, apiToken } = sysConfig.cfConfig;
+    if (!cc?.cfConfig) return { success: false, pages: 0, workers: 0, total: 0 };
+    const { accountId, apiToken } = cc.cfConfig;
     if (!apiToken) return { success: false, pages: 0, workers: 0, total: 0 };
     const API = "https://api.cloudflare.com/client/v4";
     const sum = (a) => a?.reduce((t, i) => t + (i?.sum?.requests || 0), 0) || 0;
@@ -1398,135 +1233,51 @@ function getPoemPage() {
     return ResponseBuilder.html(html, 401);
 }
 
-function get1101Page(host, clientIp) {
-	const now = new Date();
-	const timeStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0') + ' ' + String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
-	const rayId = Array.from(crypto.getRandomValues(new Uint8Array(8))).map(b => b.toString(16).padStart(2, '0')).join('');
-	return ResponseBuilder.html(`<!DOCTYPE html>
-<!--[if lt IE 7]> <html class="no-js ie6 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 7]>    <html class="no-js ie7 oldie" lang="en-US"> <![endif]-->
-<!--[if IE 8]>    <html class="no-js ie8 oldie" lang="en-US"> <![endif]-->
-<!--[if gt IE 8]><!--> <html class="no-js" lang="en-US"> <!--<![endif]-->
-<head>
-<title>Worker threw exception | ${host} | Cloudflare</title>
-<meta charset="UTF-8" />
-<meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
-<meta http-equiv="X-UA-Compatible" content="IE=Edge" />
-<meta name="robots" content="noindex, nofollow" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<link rel="stylesheet" id="cf_styles-css" href="/cdn-cgi/styles/cf.errors.css" />
-<!--[if lt IE 9]><link rel="stylesheet" id='cf_styles-ie-css' href="/cdn-cgi/styles/cf.errors.ie.css" /><![endif]-->
-<style>body{margin:0;padding:0}</style>
-<!--[if gte IE 10]><!-->
-<script>
-  if (!navigator.cookieEnabled) {
-    window.addEventListener('DOMContentLoaded', function () {
-      var cookieEl = document.getElementById('cookie-alert');
-      cookieEl.style.display = 'block';
-    })
-  }
-</script>
-<!--<![endif]-->
-</head>
-<body>
-    <div id="cf-wrapper">
-        <div class="cf-alert cf-alert-error cf-cookie-error" id="cookie-alert" data-translate="enable_cookies">Please enable cookies.</div>
-        <div id="cf-error-details" class="cf-error-details-wrapper">
-            <div class="cf-wrapper cf-header cf-error-overview">
-                <h1>
-                    <span class="cf-error-type" data-translate="error">Error</span>
-                    <span class="cf-error-code">1101</span>
-                    <small class="heading-ray-id">Ray ID: ${rayId} &bull; ${timeStr} UTC</small>
-                </h1>
-                <h2 class="cf-subheadline" data-translate="error_desc">Worker threw exception</h2>
-            </div>
-            <section></section>
-            <div class="cf-section cf-wrapper">
-                <div class="cf-columns two">
-                    <div class="cf-column">
-                        <h2 data-translate="what_happened">What happened?</h2>
-                            <p>You've requested a page on a website (${host}) that is on the <a href="https://www.cloudflare.com/5xx-error-landing?utm_source=error_100x" target="_blank">Cloudflare</a> network. An unknown error occurred while rendering the page.</p>
-                    </div>
-                    <div class="cf-column">
-                        <h2 data-translate="what_can_i_do">What can I do?</h2>
-                            <p><strong>If you are the owner of this website:</strong><br />refer to <a href="https://developers.cloudflare.com/workers/observability/errors/" target="_blank">Workers - Errors and Exceptions</a> and check Workers Logs for ${host}.</p>
-                    </div>
-                </div>
-            </div>
-            <div class="cf-error-footer cf-wrapper w-240 lg:w-full py-10 sm:py-4 sm:px-8 mx-auto text-center sm:text-left border-solid border-0 border-t border-gray-300">
-    <p class="text-13">
-      <span class="cf-footer-item sm:block sm:mb-1">Cloudflare Ray ID: <strong class="font-semibold"> ${rayId}</strong></span>
-      <span class="cf-footer-separator sm:hidden">&bull;</span>
-      <span id="cf-footer-item-ip" class="cf-footer-item hidden sm:block sm:mb-1">
-        Your IP:
-        <button type="button" id="cf-footer-ip-reveal" class="cf-footer-ip-reveal-btn">Click to reveal</button>
-        <span class="hidden" id="cf-footer-ip">${clientIp}</span>
-        <span class="cf-footer-separator sm:hidden">&bull;</span>
-      </span>
-      <span class="cf-footer-item sm:block sm:mb-1"><span>Performance &amp; security by</span> <a rel="noopener noreferrer" href="https://www.cloudflare.com/5xx-error-landing" id="brand_link" target="_blank">Cloudflare</a></span>
-    </p>
-    <script>(function(){function d(){var b=a.getElementById("cf-footer-item-ip"),c=a.getElementById("cf-footer-ip-reveal");b&&"classList"in b&&(b.classList.remove("hidden"),c.addEventListener("click",function(){c.classList.add("hidden");a.getElementById("cf-footer-ip").classList.remove("hidden")}))}var a=document;document.addEventListener&&a.addEventListener("DOMContentLoaded",d)})();</script>
-  </div>
-        </div>
-    </div>
-     <script>
-    window._cf_translation = {};
-  </script> 
-</body>
-</html>`, 500);
-}
-
 export default {
     async fetch(req, env, ctx) {
         try {
             await optimizeConfigLoading(env, ctx);
-            if (defaultPath === 'dylj' || defaultPath === '') defaultPath = adminUuid || 'dylj';
-            if (env.FDIP) fallbackIps = env.FDIP.split(',').map(s => s.trim());
-            defaultPath = env.SUB_PATH || env.subpath || defaultPath;
-            adminUuid = env.UUID || env.uuid || env.AUTH || adminUuid;
+            if (p === 'dylj' || p === '') p = uid || 'dylj';
+            if (env.FDIP) fdc = env.FDIP.split(',').map(s => s.trim());
+            p = env.SUB_PATH || env.subpath || p;
+            uid = env.UUID || env.uuid || env.AUTH || uid;
             const config = await optimizeConfigLoading(env, ctx);
-            customDns = config.customDns || env.DNS_RESOLVER || customDns;
-            const loginPath = config.loginPath || 'login';
+            dns = config.dns || env.DNS_RESOLVER || dns;
+            const loginPath = config.klp || 'login';
 
             const upg = req.headers.get('Upgrade');
             const url = new URL(req.url);
             const proxyCtx = await getRequestProxyConfig(req, config);
 
             if (upg && upg.toLowerCase() === 'websocket') {
-                return await handleWSRequest(req, adminUuid, url, proxyCtx);
+                return await handleWSRequest(req, uid, url, proxyCtx);
             }
 
             const pathname = url.pathname;
             const token = getSessionCookie(req.headers.get('Cookie'));
             const sessionResult = await validateAndRefreshSession(env, token);
-            const host = req.headers.get('Host');
-            const clientIp = req.headers.get('CF-Connecting-IP') || 'unknown';
 
-            if (!config.panelEnabled && !sessionResult.valid && pathname !== `/${defaultPath}` && pathname !== `/${adminUuid}` && pathname !== `/${loginPath}`) {
-                if (config.proxyUrl === '1101') return get1101Page(host, clientIp);
+            if (!config.pe && !sessionResult.valid && pathname !== `/${p}` && pathname !== `/${uid}` && pathname !== `/${loginPath}`) {
                 return fetchProxyPage(req);
             }
 
             if (pathname === '/') {
                 if (sessionResult.valid) {
-                    const response = await getMainPageContent(host, `https://${host}`, await getPwd(env), await getUuid(env), env);
+                    const host = req.headers.get('Host');
+                    const response = await getMainPageContent(host, `https://${host}`, await gP(env), await gU(env), env);
                     if (sessionResult.refreshed) response.headers.set('Set-Cookie', setSessionCookie(sessionResult.newToken));
                     return response;
                 } else {
-                    const pw = await getPwd(env); const u = await getUuid(env);
+                    const pw = await gP(env); const u = await gU(env);
                     if (!pw || !u) return getInitPage(req.headers.get('Host'), `https://${req.headers.get('Host')}`, true);
                     if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-                    if (!config.panelEnabled) {
-                        if (config.proxyUrl === '1101') return get1101Page(host, clientIp);
-                        return fetchProxyPage(req);
-                    }
-                    return getPoemPage();
+                    return config.pe ? getPoemPage() : fetchProxyPage(req);
                 }
             }
 
             if (pathname === `/${loginPath}`) return await handleLogin(req, env);
             switch (pathname) {
-                case `/${defaultPath}`: return await sub(req);
+                case `/${p}`: return await sub(req);
                 case '/info': return await requireAuth(req, env, () => ResponseBuilder.json(req.cf));
                 case '/connect': return await requireAuth(req, env, handleConnectTest);
                 case '/test-dns': return await requireAuth(req, env, handleDNSTest);
@@ -1541,14 +1292,10 @@ export default {
                 case '/api/usage': return await requireAuth(req, env, async()=> ResponseBuilder.json(await getCloudflareUsageAPI(env)));
             }
 
-            if (pathname === `/${adminUuid}`) return await sub(req);
+            if (pathname === `/${uid}`) return await sub(req);
 
             if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-            if (!config.panelEnabled) {
-                if (config.proxyUrl === '1101') return get1101Page(host, clientIp);
-                return fetchProxyPage(req);
-            }
-            return getPoemPage();
+            return config.pe ? getPoemPage() : fetchProxyPage(req);
         } catch (err) {
             return ErrorHandler.internalError();
         }
@@ -1573,7 +1320,7 @@ function getLoginPage(url, baseUrl, showError = false, showPasswordChanged = fal
             <h1>欢迎回来</h1>
             <p>请输入密码以访问控制台</p>
             ${msgHtml}
-            <form method="post" action="/${sysConfig?.loginPath || 'login'}">
+            <form method="post" action="/${cc?.klp || 'login'}">
                 <div class="form-group">
                     <label>访问密码</label>
                     <input type="password" name="password" required autofocus placeholder="请输入登录密码">
@@ -1666,16 +1413,16 @@ async function handleInit(req, env) {
     const loginPath = form.get('login_path') || 'login';
     if (password !== confirmPassword) return ResponseBuilder.html('密码不匹配', 400);
     if (!UUIDUtils.isValidUUID(uuid)) return ResponseBuilder.html('UUID无效', 400);
-    await setPwd(env, password);
-    await setUuid(env, uuid);
-    await saveConfigToKV(env, cfIps, fallbackIps, uuid, null, null, null, loginPath, null, null, null, null, true, null, null);
-    adminUuid = uuid;
-    const newToken = await signToken(env, Date.now() + SESS_DUR);
+    await sP(env, password);
+    await sU(env, uuid);
+    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath, null, null, null, null, null, true, null);
+    uid = uuid;
+    const newToken = await signToken(env, Date.now() + SESSION_DURATION);
     return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
 }
 
 async function getMainPageContent(host, base, pw, uuid, env) {
-    const proxyStatus = sysConfig?.proxyConfig?.enabled ? `<span style="color:#22c55e;">● 已启用 (${sysConfig.proxyConfig.type.toUpperCase()} | ${sysConfig.proxyConfig.global ? '全局' : '分流'})</span>` : `<span style="color:#94a3b8;">● 未启用</span>`;
+    const proxyStatus = cc?.proxyConfig?.enabled ? `<span style="color:#22c55e;">● 已启用 (${cc.proxyConfig.type.toUpperCase()} | ${cc.proxyConfig.global ? '全局' : '分流'})</span>` : `<span style="color:#94a3b8;">● 未启用</span>`;
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -1732,9 +1479,9 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
             <div class="stat-item">
                 <span class="stat-label">核心协议</span>
                 <span class="stat-val" style="display: flex; align-items: center; gap: 8px; justify-content: flex-end;">
-                 <span style="color:${enableVless?'#22c55e':'#94a3b8'}">Vless ${enableVless?'●':'○'}</span>
+                 <span style="color:${ev?'#22c55e':'#94a3b8'}">Vless ${ev?'●':'○'}</span>
                   <span style="opacity: 0.2;">|</span>
-                  <span style="color:${enableTrojan?'#22c55e':'#94a3b8'}">Trojan ${enableTrojan?'●':'○'}</span>
+                  <span style="color:${et?'#22c55e':'#94a3b8'}">Trojan ${et?'●':'○'}</span>
                 </span>
             </div>
             <div class="stat-item">
@@ -1793,8 +1540,8 @@ body { justify-content: flex-start; padding: 2rem 1rem; }
     
     function copySub(type) {
         const rawSub = '${base}/${uuid}';
-        const backend = '${sysConfig?.subBackend || subBackend}';
-        const config = '${sysConfig?.subConfig || subConfig}';
+        const backend = '${cc?.dyhd || dyhd}';
+        const config = '${cc?.dypz || dypz}';
         
         let url = backend;
         if (!url.includes('?')) url += '?';
@@ -1850,8 +1597,6 @@ async function handleAdminSave(req, env) {
         const protocolEv = form.get('protocol_ev') === 'on';
         const protocolEt = form.get('protocol_et') === 'on';
         const protocolTp = form.get('protocol_tp');
-        const protocolEch = form.get('protocol_ech') === 'on';
-        const protocolEchSni = form.get('protocol_ech_sni') || 'cloudflare-ech.com';
         let cfAccountId = form.get('cf_account_id');
         const cfApiToken = form.get('cf_api_token');
         const proxyEnabled = form.get('proxy_enabled') === 'on';
@@ -1864,7 +1609,7 @@ async function handleAdminSave(req, env) {
         if (u && !UUIDUtils.isValidUUID(u)) return ResponseBuilder.text('UUID无效', 400);
         const cfipArr = uniqueIPList(cfipList.split('\n').map(x => x.trim()).filter(Boolean));
         const fdipArr = uniqueIPList(fdipList.split('\n').map(x => x.trim()).filter(Boolean));
-        if (newPassword) await setPwd(env, newPassword);
+        if (newPassword) await sP(env, newPassword);
         if (!cfAccountId && cfApiToken) {
             try {
                 const resp = await fetch("https://api.cloudflare.com/client/v4/accounts", {
@@ -1881,14 +1626,14 @@ async function handleAdminSave(req, env) {
                 }
             } catch (e) {}
         }
-        const protocolCfg = { enableVless: protocolEv, enableTrojan: protocolEt, trojanPwd: protocolTp };
-        const echCfg = { enableEch: protocolEch, echSni: protocolEchSni };
+        const protocolCfg = { ev: protocolEv, et: protocolEt, tp: protocolTp };
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
-        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, peVal, newProxyUrl, echCfg);
-        cfIps = cfipArr; fallbackIps = fdipArr; subBackend = formDyhd; subConfig = formDypz; surgeTemplate = surgeT; customDns = formDns || customDns; proxyUrl = newProxyUrl;
-        if (u) adminUuid = u;
-        enableVless = protocolEv; enableTrojan = protocolEt; trojanPwd = protocolTp; panelEnabled = peVal; enableEch = protocolEch; echSni = protocolEchSni;
+        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, peVal, newProxyUrl);
+        yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns; proxyUrl = newProxyUrl;
+        if (u) uid = u;
+        ev = protocolEv; et = protocolEt; tp = protocolTp; pe = peVal;
+        protocolConfig = { ev, et, tp };
         const host = req.headers.get('Host');
         if (req.headers.get('Accept') === 'application/json') return ResponseBuilder.json({ success: true });
         return ResponseBuilder.redirect(`https://${host}/admin?msg=saved`);
@@ -1899,7 +1644,7 @@ async function getAdminPage(req, env) {
     const token = getSessionCookie(req.headers.get('Cookie'));
     const sessionResult = await validateAndRefreshSession(env, token);
     if (!sessionResult.valid) return ErrorHandler.unauthorized();
-    if (!sysConfig) await optimizeConfigLoading(env);
+    if (!cc) await optimizeConfigLoading(env);
     const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -2044,21 +1789,9 @@ function togglePanelInputs() {
         proxyUrlInput.style.display = 'none';
     }
 }
-function toggleEchInputs() {
-    const checkbox = document.querySelector('input[name="protocol_ech"]');
-    const echSniInput = document.getElementById('ech-sni-input');
-    if (checkbox.checked) {
-        echSniInput.style.display = 'block';
-        echSniInput.style.animation = 'fadeIn 0.3s';
-    } else {
-        echSniInput.style.display = 'none';
-    }
-}
 document.addEventListener('DOMContentLoaded', () => {
     togglePanelInputs();
     document.querySelector('input[name="panel_enabled"]').addEventListener('change', togglePanelInputs);
-    toggleEchInputs();
-    document.querySelector('input[name="protocol_ech"]').addEventListener('change', toggleEchInputs);
 });
 </script>
 <style>
@@ -2081,12 +1814,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="grid-2">
                     <div class="form-group">
                         <label>优选 IP / 域名 (Web伪装 & 订阅)</label>
-                        <textarea name="cfip" placeholder="例如: 1.1.1.1:443#美国">${cfIps.join('\n')}</textarea>
+                        <textarea name="cfip" placeholder="例如: 1.1.1.1:443#美国">${yx.join('\n')}</textarea>
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP:端口#备注</code><br>用于 Web 伪装和生成订阅链接。</span></div>
                     </div>
                     <div class="form-group">
                         <label>反代 IP / 域名 / TXT记录 (中转连接)</label>
-                        <textarea name="fdip" placeholder="例如: ip.sb">${fallbackIps.join('\n')}</textarea>
+                        <textarea name="fdip" placeholder="例如: ip.sb">${fdc.join('\n')}</textarea>
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>格式: <code>IP</code> 或 <code>域名</code><br>用于 Worker 实际回源连接。支持 .william 结尾的动态TXT记录。</span></div>
                     </div>
                 </div>
@@ -2098,13 +1831,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="form-group">
                         <label>启用核心协议</label>
                         <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ev" ${enableVless ? 'checked' : ''}> Vless</label>
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_et" ${enableTrojan ? 'checked' : ''}> Trojan</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ev" ${ev ? 'checked' : ''}> Vless</label>
+                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_et" ${et ? 'checked' : ''}> Trojan</label>
                         </div>
                     </div>
                     <div class="form-group">
                         <label>Trojan 密码</label>
-                        <input type="text" name="protocol_tp" value="${trojanPwd}" placeholder="留空则默认使用 UUID">
+                        <input type="text" name="protocol_tp" value="${tp}" placeholder="留空则默认使用 UUID">
                     </div>
                 </div>
                 
@@ -2112,25 +1845,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="form-group">
                         <label>UUID (用户ID)</label>
                         <div style="display: flex; gap: 0.75rem;">
-                            <input type="text" id="uuid" name="uuid" value="${adminUuid}" required style="font-family:monospace;">
+                            <input type="text" id="uuid" name="uuid" value="${uid}" required style="font-family:monospace;">
                             <button type="button" class="btn btn-secondary" onclick="genUUID()" style="width: auto; padding: 0 1.5rem;">生成</button>
                         </div>
                     </div>
                      <div class="form-group">
                         <label>修改后台密码</label>
                         <input type="password" name="new_password" placeholder="留空保持不变">
-                    </div>
-                </div>
-                
-                <div class="form-group" style="margin-top:1.5rem; border-top: 1px dashed var(--border); padding-top: 1.5rem;">
-                    <label>ECH (加密 Client Hello)</label>
-                    <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                        <label class="toggle-switch" style="margin:0"><input type="checkbox" name="protocol_ech" ${enableEch ? 'checked' : ''}> 启用 ECH</label>
-                    </div>
-                    <div id="ech-sni-input" style="display: none; margin-top: 1rem;">
-                        <label>ECH SNI (查询 SVCB 的域名)</label>
-                        <input type="text" name="protocol_ech_sni" value="${echSni}" placeholder="例如: cloudflare-ech.com">
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>用于获取 ECH 密钥的域名，开启后将集成到订阅配置中。</span></div>
                     </div>
                 </div>
             </div>
@@ -2145,20 +1866,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 <div class="form-group">
                     <label class="toggle-switch" style="display:flex; align-items:center; margin-bottom: 1rem;">
-                        <input type="checkbox" name="proxy_enabled" ${sysConfig?.proxyConfig?.enabled ? 'checked' : ''}> 启用代理转发功能
+                        <input type="checkbox" name="proxy_enabled" ${cc?.proxyConfig?.enabled ? 'checked' : ''}> 启用代理转发功能
                     </label>
                 </div>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>节点地址</label>
-                        <input type="text" name="proxy_account" value="${sysConfig?.proxyConfig?.account || ''}" placeholder="user:pass@host:port">
+                        <input type="text" name="proxy_account" value="${cc?.proxyConfig?.account || ''}" placeholder="user:pass@host:port">
                     </div>
                     <div class="form-group">
                         <label>协议类型</label>
                         <select name="proxy_type">
-                            <option value="socks5" ${sysConfig?.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
-                            <option value="http" ${sysConfig?.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option>
-                            <option value="https" ${sysConfig?.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option>
+                            <option value="socks5" ${cc?.proxyConfig?.type === 'socks5' ? 'selected' : ''}>SOCKS5</option>
+                            <option value="http" ${cc?.proxyConfig?.type === 'http' ? 'selected' : ''}>HTTP</option>
+                            <option value="https" ${cc?.proxyConfig?.type === 'https' ? 'selected' : ''}>HTTPS</option>
                         </select>
                     </div>
                 </div>
@@ -2166,13 +1887,39 @@ document.addEventListener('DOMContentLoaded', () => {
                     <label>转发模式</label>
                     <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem;">
                         <label class="toggle-switch">
-                            <input type="radio" name="proxy_mode" value="global" ${sysConfig?.proxyConfig?.global ? 'checked' : ''}> 全局代理 (Global)
+                            <input type="radio" name="proxy_mode" value="global" ${cc?.proxyConfig?.global ? 'checked' : ''}> 全局代理 (Global)
                         </label>
                         <label class="toggle-switch">
-                            <input type="radio" name="proxy_mode" value="failover" ${!sysConfig?.proxyConfig?.global ? 'checked' : ''}> 故障分流 (Failover)
+                            <input type="radio" name="proxy_mode" value="failover" ${!cc?.proxyConfig?.global ? 'checked' : ''}> 故障分流 (Failover)
                         </label>
                     </div>
                     <div class="help-text" style="margin-top:0.5rem;"><i class="fas fa-lightbulb"></i><span>全局：所有流量优先走代理；分流：直连失败后尝试代理。</span></div>
+                    <div style="margin-top: 0.75rem;">
+                        <details style="background: transparent; border: none;">
+                            <summary style="cursor: pointer; color: var(--primary); font-size: 0.85rem; display: flex; align-items: center; gap: 0.25rem;">
+                                <i class="fas fa-question-circle" style="font-size: 0.8rem;"></i>
+                                支持格式说明
+                            </summary>
+                            <div style="margin-top: 0.5rem; padding: 0.5rem; background: rgba(255,255,255,0.03); border-radius: 0.25rem; font-size: 0.75rem; line-height: 1.4;">
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem;">
+                                    <div>
+                                        <div style="color: var(--text); font-weight: 500;">基本格式</div>
+                                        <code style="font-size: 0.7rem;">user:pass@host:port</code>
+                                        <br><code style="font-size: 0.7rem;">host:port</code>
+                                    </div>
+                                    <div>
+                                        <div style="color: var(--text); font-weight: 500;">高级格式</div>
+                                        <code style="font-size: 0.7rem;">base64@host:port</code>
+                                        <br><code style="font-size: 0.7rem;">[IPv6]:port</code>
+                                    </div>
+                                </div>
+                                <div style="margin-top: 0.5rem; color: var(--text-light); font-size: 0.7rem;">
+                                    <i class="fas fa-bolt" style="color: var(--primary);"></i>
+                                    路径用法: <code>socks5://...#备注</code> 或 <code>https://...#备注</code>
+                                </div>
+                            </div>
+                        </details>
+                    </div>
                 </div>
             </div>
             
@@ -2181,45 +1928,45 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="grid-2">
                     <div class="form-group">
                         <label>订阅转换后端地址</label>
-                        <input type="text" name="dyhd" value="${sysConfig?.subBackend || subBackend}" placeholder="https://xxx.xx.xx/sub?">
+                        <input type="text" name="dyhd" value="${cc?.dyhd || dyhd}" placeholder="https://xxx.xx.xx/sub?">
                     </div>
                     <div class="form-group">
                         <label>远程配置规则地址</label>
-                        <input type="text" name="dypz" value="${sysConfig?.subConfig || subConfig}" placeholder="https://...">
+                        <input type="text" name="dypz" value="${cc?.dypz || dypz}" placeholder="https://...">
                     </div>
                 </div>
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Surge 专用模版</label>
-                        <input type="text" name="surgeTemplate" value="${sysConfig?.surgeTemplate || ''}" placeholder="https://raw.githubusercontent.com/...">
+                        <input type="text" name="surgeTemplate" value="${cc?.stp || ''}" placeholder="https://raw.githubusercontent.com/...">
                         <div class="help-text"><i class="fas fa-info-circle"></i><span>仅影响 Surge 订阅格式。留空则使用系统内置模版。</span></div>
                     </div>
                      <div class="form-group">
                         <label>后台入口路径</label>
                         <div style="position:relative;">
                             <span style="position:absolute; left:1rem; top:0.75rem; color:var(--text-light); opacity:0.5;">/</span>
-                            <input type="text" name="login_path" value="${sysConfig?.loginPath || 'login'}" style="padding-left: 2rem;">
+                            <input type="text" name="login_path" value="${cc?.klp || 'login'}" style="padding-left: 2rem;">
                         </div>
                         <div class="help-text"><i class="fas fa-lock"></i> <span>登录路径，建议修改以防暴力破解。</span></div>
                     </div>
                 </div>
                 <div class="form-group">
                     <label>DNS DoH 地址 (UDP 53 转发)</label>
-                    <input type="text" name="custom_dns" value="${sysConfig?.customDns || customDns}" placeholder="例如: https://1.1.1.1/dns-query">
-                    <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址。</span></div>
+                    <input type="text" name="custom_dns" value="${cc?.dns || dns}" placeholder="例如: https://1.1.1.1/dns-query">
+                    <div class="help-text"><i class="fas fa-server"></i><span>默认内置 DNS: sky.rethinkdns... 必须是支持 application/dns-message 的 DoH 地址，主要用于支持节点内的 DNS 解析请求。</span></div>
                 </div>
                 
                 <div class="form-group" style="margin-top:1.5rem; border-top: 1px dashed var(--border); padding-top: 1.5rem;">
                     <label>控制面板状态 (动态反代伪装开关)</label>
                     <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                        <label class="toggle-switch" style="margin:0"><input type="checkbox" name="panel_enabled" ${sysConfig?.panelEnabled ?? true ? 'checked' : ''}> 开启控制面板</label>
+                        <label class="toggle-switch" style="margin:0"><input type="checkbox" name="panel_enabled" ${cc?.pe ?? true ? 'checked' : ''}> 开启控制面板</label>
                     </div>
-                    <div class="help-text"><i class="fas fa-shield-alt" style="color:var(--primary);"></i><span>关闭后，非法探测访问将返回伪装页面或 1101 错误。</span></div>
+                    <div class="help-text"><i class="fas fa-shield-alt" style="color:var(--primary);"></i><span>关闭后，非法探测访问（包括根目录）将不再返回静态页面，而是完全伪装成你设置的真实网站，彻底隐形！如果你需要登录，请直接访问你的 <b>后台入口路径</b>。</span></div>
                     
                     <div id="proxy-url-input" style="display: none; margin-top: 1rem;">
-                        <label style="color:#ef4444;"><i class="fas fa-mask"></i> 伪装目标网站 (反向代理 URL 或 '1101')</label>
-                        <input type="text" name="proxy_url" value="${sysConfig?.proxyUrl || proxyUrl}" placeholder="例如: https://docs.github.com 或填写 1101">
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>如果填写 1101，访客将看到 Cloudflare 1101 错误页面以防止封禁。</span></div>
+                        <label style="color:#ef4444;"><i class="fas fa-mask"></i> 伪装目标网站 (反向代理 URL)</label>
+                        <input type="text" name="proxy_url" value="${cc?.proxyUrl || proxyUrl}" placeholder="例如: https://docs.github.com">
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>当面板关闭时，访客看到的将是这个网站的内容。建议填写一个国外大型的合法网站。如果填错可能导致502错误。</span></div>
                     </div>
                 </div>
             </div>
@@ -2229,11 +1976,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="grid-2">
                     <div class="form-group">
                         <label>Account ID</label>
-                        <input type="text" name="cf_account_id" value="${sysConfig?.cfConfig?.accountId || ''}" placeholder="支持手动输入 & 支持通过Token自动获取">
+                        <input type="text" name="cf_account_id" value="${cc?.cfConfig?.accountId || ''}" placeholder="支持手动输入 & 支持通过Token自动获取">
                     </div>
                     <div class="form-group">
                         <label>API Token</label>
-                        <input type="password" name="cf_api_token" value="${sysConfig?.cfConfig?.apiToken || ''}" placeholder="填入Token并保存后，系统将尝试自动获取ID">
+                        <input type="password" name="cf_api_token" value="${cc?.cfConfig?.apiToken || ''}" placeholder="填入Token并保存后，系统将尝试自动获取ID">
                     </div>
                 </div>
                 <div class="help-text"><i class="fas fa-shield-alt"></i><span>请在 Cloudflare 用户资料页创建 Token，阅读日志权限选择 "Analytics: Read" (分析:读取)。</span></div>
@@ -2255,30 +2002,30 @@ async function handleConnectTest(req, env) {
     try {
         const { socket, server } = await universalConnectWithFailover();
         socket.close();
-        return ResponseBuilder.json({ success: true, message: `Connected: ${server.original}`, server: server });
-    } catch (e) { return ResponseBuilder.json({ success: false, message: `Connect failed: ${e.message}` }, 500); }
+        return ResponseBuilder.json({ success: true, message: `成功连接到 ${server.original}`, server: server });
+    } catch (e) { return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` }, 500); }
 }
 
 async function handleDNSTest(req, env) {
     try {
-        const res = await fetch(customDns, { method: 'POST', headers: { 'content-type': 'application/dns-message' }, body: new Uint8Array([0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]) });
+        const res = await fetch(dns, { method: 'POST', headers: { 'content-type': 'application/dns-message' }, body: new Uint8Array([0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 6, 103, 111, 111, 103, 108, 101, 3, 99, 111, 109, 0, 0, 1, 0, 1]) });
         const ans = await res.arrayBuffer();
-        return ResponseBuilder.json({ success: true, message: 'DNS OK', response: new Uint8Array(ans).slice(0, 100) });
-    } catch (e) { return ResponseBuilder.json({ success: false, message: `DNS Failed: ${e.message}` }, 500); }
+        return ResponseBuilder.json({ success: true, message: 'DNS查询成功', response: new Uint8Array(ans).slice(0, 100) });
+    } catch (e) { return ResponseBuilder.json({ success: false, message: `DNS查询失败: ${e.message}` }, 500); }
 }
 
 async function handleConfigTest(req, env) {
     try {
         const host = req.headers.get('Host');
-        const config = genConfig(adminUuid, host);
-        return ResponseBuilder.json({ success: true, message: 'Config generated', config: config });
-    } catch (e) { return ResponseBuilder.json({ success: false, message: `Config Failed: ${e.message}` }, 500); }
+        const config = genConfig(uid, host);
+        return ResponseBuilder.json({ success: true, message: '配置生成成功', config: config });
+    } catch (e) { return ResponseBuilder.json({ success: false, message: `配置生成失败: ${e.message}` }, 500); }
 }
 
 async function handleFailoverTest(req, env) {
     try {
         const testResults = [];
-        const servers = [...fallbackIps, 'www.visa.com.sg'];
+        const servers = [...fdc, 'www.visa.com.sg'];
         for (let i = 0; i < servers.length; i++) {
             const s = servers[i];
             try {
@@ -2286,17 +2033,17 @@ async function handleFailoverTest(req, env) {
                 const socket = await connect({ hostname: hostname, port: port, connectTimeout: globalTimeout, noDelay: true });
                 socket.closed.catch(() => {});
                 socket.close();
-                testResults.push({ server: s, status: 'success', message: `Connected` });
-            } catch (e) { testResults.push({ server: s, status: 'failed', message: `Connect failed: ${e.message}` }); }
+                testResults.push({ server: s, status: 'success', message: `连接成功` });
+            } catch (e) { testResults.push({ server: s, status: 'failed', message: `连接失败: ${e.message}` }); }
         }
-        return ResponseBuilder.json({ success: true, message: 'Failover test completed', results: testResults });
-    } catch (e) { return ResponseBuilder.json({ success: false, message: `Failover test failed: ${e.message}` }, 500); }
+        return ResponseBuilder.json({ success: true, message: '故障转移测试完成', results: testResults });
+    } catch (e) { return ResponseBuilder.json({ success: false, message: `故障转移测试失败: ${e.message}` }, 500); }
 }
 
 async function handleProxyTest(req, env) {
     try {
         const { type, account } = await req.json();
-        if (!account) throw new Error("Account empty");
+        if (!account) throw new Error("节点地址为空");
         const parsedAddress = await parseProxyAccount(account);
         const targetHost = "www.google.com";
         const targetPort = 80;
@@ -2309,11 +2056,11 @@ async function handleProxyTest(req, env) {
         } else if (type === 'https') {
             const conn = await httpConnect(targetHost, targetPort, null, true, parsedAddress);
             socket = conn.close ? conn : { close: () => conn.cancel ? conn.cancel() : null };
-        } else throw new Error("Unknown type");
+        } else throw new Error("未知的代理协议类型");
         const latency = Date.now() - startTime;
         try { if (socket && typeof socket.close === 'function') socket.close(); } catch(e) {}
-        return ResponseBuilder.json({ success: true, message: `Success! Latency: ${latency}ms` });
-    } catch (e) { return ResponseBuilder.json({ success: false, message: `Failed: ${e.message}` }); }
+        return ResponseBuilder.json({ success: true, message: `连接成功! 延迟: ${latency}ms` });
+    } catch (e) { return ResponseBuilder.json({ success: false, message: `连接失败: ${e.message}` }); }
 }
 
 async function zxyx(request, env, txt = 'ADD.txt') {
@@ -2368,14 +2115,14 @@ async function zxyx(request, env, txt = 'ADD.txt') {
             let response;
             if (ipSource.startsWith('http://') || ipSource.startsWith('https://')) {
                 try { response = await fetch(ipSource, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }); } 
-                catch (e) { throw new Error(`API failed: ${e.message}`); }
+                catch (e) { throw new Error(`无法连接到自定义 API: ${e.message}`); }
             } else if (ipSource === 'as13335') response = await fetch(atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2lwdmVyc2UvYXNuLWlwL21hc3Rlci9hcy8xMzMzNS9pcHY0LWFnZ3JlZ2F0ZWQudHh0'));
             else if (ipSource === 'as209242') response = await fetch(atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2lwdmVyc2UvYXNuLWlwL21hc3Rlci9hcy8yMDkyNDIvaXB2NC1hZ2dyZWdhdGVkLnR4dA=='));
             else if (ipSource === 'as24429') response = await fetch(atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2lwdmVyc2UvYXNuLWlwL21hc3Rlci9hcy8yNDQyOS9pcHY0LWFnZ3JlZ2F0ZWQudHh0'));
             else if (ipSource === 'as35916') response = await fetch(atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2lwdmVyc2UvYXNuLWlwL21hc3Rlci9hcy8zNTkxNi9pcHY0LWFnZ3JlZ2F0ZWQudHh0'));
             else if (ipSource === 'as199524') response = await fetch(atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL2lwdmVyc2UvYXNuLWlwL21hc3Rlci9hcy8xOTk1MjQvaXB2NC1hZ2dyZWdhdGVkLnR4dA=='));
             else response = await fetch(atob('aHR0cHM6Ly93d3cuY2xvdWRmbGFyZS5jb20vaXBzLXY0Lw=='));
-            if (!response.ok) throw new Error(`API error: ${response.status}`);
+            if (!response.ok) throw new Error(`API 响应错误: ${response.status}`);
             const text = await response.text();
             let lines = [];
             try {
@@ -2403,7 +2150,7 @@ async function zxyx(request, env, txt = 'ADD.txt') {
     }
     const url = new URL(request.url);
     if (request.method === "POST") {
-        if (!env.SJ) return new Response("KV not bound", { status: 400 });
+        if (!env.SJ) return new Response("未绑定KV空间", { status: 400 });
         try {
             const contentType = request.headers.get('Content-Type');
             if (contentType && contentType.includes('application/json')) {
@@ -2411,46 +2158,46 @@ async function zxyx(request, env, txt = 'ADD.txt') {
                 const action = url.searchParams.get('action') || 'save';
                 if (!data.ips || !Array.isArray(data.ips)) return new Response(JSON.stringify({ error: 'Invalid IP list' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                 let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
-                if (!currentConfig) currentConfig = { cfIps: cfIps, fallbackIps: fallbackIps, adminUuid: adminUuid, subBackend: subBackend, subConfig: subConfig, customDns: customDns, protocolConfig: { enableVless, enableTrojan, trojanPwd }, cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }, loginPath: 'login' };
+                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }, klp: 'login' };
                 if (action === 'replace-cf' || action === 'append-cf') {
-                    if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: 'Too large' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
+                    if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
-                        currentConfig.cfIps = uniqueIPList(data.ips);
+                        currentConfig.yx = uniqueIPList(data.ips);
                         await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        cfIps = currentConfig.cfIps; sysConfig = { ...currentConfig, cfIps: currentConfig.cfIps, ct: Date.now() };
-                        return new Response(JSON.stringify({ success: true, message: `Saved ${currentConfig.cfIps.length} IPs` }), { headers: { 'Content-Type': 'application/json' }});
+                        yx = currentConfig.yx; cc = { ...currentConfig, yx: currentConfig.yx, ct: Date.now() };
+                        return new Response(JSON.stringify({ success: true, message: `成功替换优选IP列表，保存 ${currentConfig.yx.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     } else {
-                        const newIPs = uniqueIPList([...currentConfig.cfIps, ...data.ips]);
-                        if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: 'Too large' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
-                        currentConfig.cfIps = newIPs;
+                        const newIPs = uniqueIPList([...currentConfig.yx, ...data.ips]);
+                        if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '追加后内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
+                        currentConfig.yx = newIPs;
                         await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        cfIps = newIPs; sysConfig = { ...currentConfig, cfIps: newIPs, ct: Date.now() };
-                        return new Response(JSON.stringify({ success: true, message: `Added ${data.ips.length} IPs` }), { headers: { 'Content-Type': 'application/json' }});
+                        yx = newIPs; cc = { ...currentConfig, yx: newIPs, ct: Date.now() };
+                        return new Response(JSON.stringify({ success: true, message: `成功追加优选IP列表，新增 ${data.ips.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     }
                 } else if (action === 'replace-fd' || action === 'append-fd') {
-                    if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: 'Too large' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
+                    if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-fd') {
-                        currentConfig.fallbackIps = uniqueIPList(data.ips);
+                        currentConfig.fdc = uniqueIPList(data.ips);
                         await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        fallbackIps = currentConfig.fallbackIps; sysConfig = { ...currentConfig, fallbackIps: currentConfig.fallbackIps, ct: Date.now() };
-                        return new Response(JSON.stringify({ success: true, message: `Saved ${currentConfig.fallbackIps.length} IPs` }), { headers: { 'Content-Type': 'application/json' }});
+                        fdc = currentConfig.fdc; cc = { ...currentConfig, fdc: currentConfig.fdc, ct: Date.now() };
+                        return new Response(JSON.stringify({ success: true, message: `成功替换反代IP列表，保存 ${currentConfig.fdc.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     } else {
-                        const newIPs = uniqueIPList([...currentConfig.fallbackIps, ...data.ips]);
-                        if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: 'Too large' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
-                        currentConfig.fallbackIps = newIPs;
+                        const newIPs = uniqueIPList([...currentConfig.fdc, ...data.ips]);
+                        if (newIPs.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '追加后内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
+                        currentConfig.fdc = newIPs;
                         await env.SJ.put(K_SETTINGS, JSON.stringify(currentConfig));
-                        fallbackIps = newIPs; sysConfig = { ...currentConfig, fallbackIps: newIPs, ct: Date.now() };
-                        return new Response(JSON.stringify({ success: true, message: `Added ${data.ips.length} IPs` }), { headers: { 'Content-Type': 'application/json' }});
+                        fdc = newIPs; cc = { ...currentConfig, fdc: newIPs, ct: Date.now() };
+                        return new Response(JSON.stringify({ success: true, message: `成功追加反代IP列表，新增 ${data.ips.length} 个IP并立即生效` }), { headers: { 'Content-Type': 'application/json' }});
                     }
                 } else {
-                    return new Response(JSON.stringify({ error: 'Unknown action' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+                    return new Response(JSON.stringify({ error: '未知的操作类型' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                 }
             } else {
                 const content = await request.text();
                 await env.SJ.put(txt, content);
-                return new Response("Saved");
+                return new Response("保存成功");
             }
-        } catch (error) { return new Response(JSON.stringify({ error: 'Failed: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } }); }
+        } catch (error) { return new Response(JSON.stringify({ error: '操作失败: ' + error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } }); }
     }
     if (url.searchParams.get('loadIPs')) {
         const ipSource = url.searchParams.get('loadIPs');
@@ -2461,7 +2208,7 @@ async function zxyx(request, env, txt = 'ADD.txt') {
     }
     let content = '';
     let hasKV = !!env.SJ;
-    if (hasKV) { try { content = await env.SJ.get(txt) || ''; } catch (error) { content = 'Error: ' + error.message; } }
+    if (hasKV) { try { content = await env.SJ.get(txt) || ''; } catch (error) { content = '读取数据时发生错误: ' + error.message; } }
     const isChina = country === 'CN';
     const countryDisplayClass = isChina ? '' : 'proxy-warning';
     const countryDisplayText = isChina ? `${country}` : `${country} (可能需关闭代理)`;
