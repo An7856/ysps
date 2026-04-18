@@ -1326,14 +1326,14 @@ export default {
             }
 
             const pathname = url.pathname;
+            const token = getSessionCookie(req.headers.get('Cookie'));
+            const sessionResult = await validateAndRefreshSession(env, token);
 
-            if (!config.pe && pathname !== `/${p}` && pathname !== `/${uid}`) {
+            if (!config.pe && !sessionResult.valid && pathname !== `/${p}` && pathname !== `/${uid}` && pathname !== `/${loginPath}`) {
                 return fetchProxyPage(req);
             }
 
             if (pathname === '/') {
-                const token = getSessionCookie(req.headers.get('Cookie'));
-                const sessionResult = await validateAndRefreshSession(env, token);
                 if (sessionResult.valid) {
                     const host = req.headers.get('Host');
                     const response = await getMainPageContent(host, `https://${host}`, await gP(env), await gU(env), env);
@@ -1343,7 +1343,7 @@ export default {
                     const pw = await gP(env); const u = await gU(env);
                     if (!pw || !u) return getInitPage(req.headers.get('Host'), `https://${req.headers.get('Host')}`, true);
                     if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-                    return fetchProxyPage(req);
+                    return config.pe ? getPoemPage() : fetchProxyPage(req);
                 }
             }
 
@@ -1367,7 +1367,7 @@ export default {
             if (pathname === `/${uid}`) return await sub(req);
 
             if (env.ASSETS) { try { const assetRes = await env.ASSETS.fetch(req); if (assetRes.status !== 404) return assetRes; } catch(e) {} }
-            return fetchProxyPage(req);
+            return config.pe ? getPoemPage() : fetchProxyPage(req);
         } catch (err) {
             return ErrorHandler.internalError();
         }
@@ -2038,7 +2038,7 @@ document.addEventListener('DOMContentLoaded', () => {
                             <span style="position:absolute; left:1rem; top:0.75rem; color:var(--text-light); opacity:0.5;">/</span>
                             <input type="text" name="login_path" value="${cc?.klp || 'login'}" style="padding-left: 2rem;">
                         </div>
-                        <div class="help-text"><i class="fas fa-lock"></i> <span>设置后只能通过 <code>域名/路径</code> 访问。</span></div>
+                        <div class="help-text"><i class="fas fa-lock"></i> <span>登录路径，建议修改以防暴力破解。</span></div>
                     </div>
                 </div>
                 <div class="form-group">
@@ -2052,12 +2052,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
                         <label class="toggle-switch" style="margin:0"><input type="checkbox" name="panel_enabled" ${cc?.pe ?? true ? 'checked' : ''}> 开启控制面板</label>
                     </div>
-                    <div class="help-text"><i class="fas fa-shield-alt" style="color:var(--primary);"></i><span>关闭后，非法探测访问（包括根目录和错误的管理路径）将不再返回静态页面，而是完全伪装成你设置的真实网站，彻底隐形！</span></div>
+                    <div class="help-text"><i class="fas fa-shield-alt" style="color:var(--primary);"></i><span>关闭后，非法探测访问（包括根目录）将不再返回静态页面，而是完全伪装成你设置的真实网站，彻底隐形！如果你需要登录，请直接访问你的 <b>后台入口路径</b>。</span></div>
                     
                     <div id="proxy-url-input" style="display: none; margin-top: 1rem;">
                         <label style="color:#ef4444;"><i class="fas fa-mask"></i> 伪装目标网站 (反向代理 URL)</label>
                         <input type="text" name="proxy_url" value="${cc?.proxyUrl || proxyUrl}" placeholder="例如: https://docs.github.com">
-                        <div class="help-text"><i class="fas fa-info-circle"></i><span>当面板关闭时，访客看到的将是这个网站的内容。建议填写一个国外大型的合法网站。如果填错可能导致502错误。若需恢复面板，请手动修改 Cloudflare KV (将 pe 改回 true)。</span></div>
+                        <div class="help-text"><i class="fas fa-info-circle"></i><span>当面板关闭时，访客看到的将是这个网站的内容。建议填写一个国外大型的合法网站。如果填错可能导致502错误。</span></div>
                     </div>
                 </div>
             </div>
