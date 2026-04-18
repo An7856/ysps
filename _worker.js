@@ -9,8 +9,6 @@ let dyhd = atob('aHR0cHM6Ly9hcGkudjEubWsvc3ViPw==');
 let dypz = atob('aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL0FDTDRTU1IvQUNMNFNTUi9tYXN0ZXIvQ2xhc2gvY29uZmlnL0FDTDRTU1JfT25saW5lX0Z1bGxfTXVsdGlNb2RlLmluaQ==');
 let stp = '';
 let proxyUrl = 'https://docs.github.com';
-let ech = false;
-let echSni = 'cloudflare-ech.com';
 const KP = 'admin_password', KU = 'user_uuid', K_SETTINGS = 'SYSTEM_CONFIG';
 let cc = null, ct = 0, CD = 60 * 1000;
 const STALE_CD = 60 * 60 * 1000;
@@ -121,7 +119,7 @@ const ConfigUtils = {
         const kv = env.SJ || env.sj;
         const defaultConfig = {
             yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: '', dns: dns, proxyUrl: proxyUrl,
-            ev: true, et: false, tp: '', pe: true, ech: false, echSni: 'cloudflare-ech.com',
+            ev: true, et: false, tp: '', pe: true,
             klp: 'login', uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
             cfConfig: {}, proxyConfig: {}
         };
@@ -134,7 +132,7 @@ const ConfigUtils = {
                     yx: unifiedConfig.yx || yx, fdc: unifiedConfig.fdc || fdc, uid: configUid,
                     dyhd: unifiedConfig.dyhd || dyhd, dypz: unifiedConfig.dypz || dypz, stp: unifiedConfig.stp || '', dns: unifiedConfig.dns || dns, proxyUrl: unifiedConfig.proxyUrl || proxyUrl,
                     ev: unifiedConfig.protocolConfig?.ev ?? true, et: unifiedConfig.protocolConfig?.et ?? false, tp: unifiedConfig.protocolConfig?.tp ?? '',
-                    pe: unifiedConfig.pe ?? true, ech: unifiedConfig.ech ?? false, echSni: unifiedConfig.echSni || 'cloudflare-ech.com',
+                    pe: unifiedConfig.pe ?? true,
                     cfConfig: unifiedConfig.cfConfig || {}, proxyConfig: unifiedConfig.proxyConfig || {},
                     klp: unifiedConfig.klp || 'login', uuidSet: new Set(configUid.split(',').map(s => s.trim().toLowerCase()))
                 };
@@ -291,14 +289,14 @@ async function optimizeConfigLoading(env, ctx) {
             cc = newConfig;
             ct = now;
             yx = cc.yx; fdc = cc.fdc; uid = cc.uid; dyhd = cc.dyhd; dypz = cc.dypz; stp = cc.stp; dns = cc.dns || dns; proxyUrl = cc.proxyUrl || proxyUrl;
-            ev = cc.ev; et = cc.et; tp = cc.tp; pe = cc.pe ?? true; ech = cc.ech; echSni = cc.echSni;
+            ev = cc.ev; et = cc.et; tp = cc.tp; pe = cc.pe ?? true;
             protocolConfig = { ev, et, tp };
             return cc;
         } catch (error) {
             if (cc) return cc;
             return {
                 yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, stp: stp, dns: dns, proxyUrl: proxyUrl,
-                ev: ev, et: et, tp: tp, pe: pe, ech: ech, echSni: echSni,
+                ev: ev, et: et, tp: tp, pe: pe,
                 parsedIPs: yx.map(ip => IPParser.parsePreferredIP(ip)),
                 validFDCs: fdc.filter(s => s && s.trim() !== ''),
                 uuidSet: new Set(uid.split(',').map(s => s.trim().toLowerCase())),
@@ -307,20 +305,20 @@ async function optimizeConfigLoading(env, ctx) {
         }
     };
     if (cc && (now - ct) < STALE_CD && ctx) {
-        ctx.waitUntil(loadConfigTask().catch(() => {}));
+        ctx.waitUntil(loadConfigTask().catch(console.error));
         return cc;
     }
     return await loadConfigTask();
 }
 
-async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, peVal = true, newProxyUrl = null, eVal = false, eSni = 'cloudflare-ech.com') {
+async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = null, cfCfg = null, proxyCfg = null, klp = null, newDyhd = null, newDypz = null, newStp = null, newDns = null, peVal = true, newProxyUrl = null) {
     const kv = env.SJ || env.sj;
     if (!kv) return false;
     const unifiedConfig = {
         yx: cfipArr, fdc: fdipArr, uid: u || uid, dyhd: newDyhd || dyhd, dypz: newDypz || dypz, stp: newStp || stp, dns: newDns || dns, proxyUrl: newProxyUrl || proxyUrl,
         protocolConfig: protocolCfg || { ev, et, tp },
         cfConfig: cfCfg || {}, proxyConfig: proxyCfg || {},
-        klp: klp || 'login', pe: peVal, ech: eVal, echSni: eSni
+        klp: klp || 'login', pe: peVal
     };
     const ps = [kv.put(K_SETTINGS, JSON.stringify(unifiedConfig))];
     if (u) ps.push(kv.put(KU, u));
@@ -329,14 +327,14 @@ async function saveConfigToKV(env, cfipArr, fdipArr, u = null, protocolCfg = nul
     const uuidSet = new Set((u || uid).split(',').map(s => s.trim().toLowerCase()));
     cc = {
         ...unifiedConfig, timestamp: Date.now(),
-        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp, pe: peVal, ech: eVal, echSni: eSni,
+        ev: unifiedConfig.protocolConfig.ev, et: unifiedConfig.protocolConfig.et, tp: unifiedConfig.protocolConfig.tp, pe: peVal,
         parsedIPs: cfipArr.map(ip => IPParser.parsePreferredIP(ip)), validFDCs: fdipArr.filter(s => s && s.trim() !== ''), uuidSet: uuidSet
     };
     ct = Date.now();
     return true;
 }
 
-async function qDoH(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
+async function queryDoH(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/dns-query') {
     try {
         let url = doh;
         if (!url.includes('?')) url += '?'; else url += '&';
@@ -352,112 +350,6 @@ async function qDoH(domain, type, doh = cc?.dns || 'https://cloudflare-dns.com/d
         const data = await res.json();
         return (data.Status === 0 && data.Answer) ? data.Answer : [];
     } catch (e) { return []; }
-}
-
-async function fDnsB(dm, t) {
-    try {
-        const typM = {'A':1, 'AAAA':28, 'TXT':16, 'HTTPS':65};
-        const qt = typM[t] || 1;
-        const encD = (n) => {
-            const ps = n.endsWith('.') ? n.slice(0, -1).split('.') : n.split('.');
-            const bs = [];
-            for (const l of ps) {
-                const e = new TextEncoder().encode(l);
-                bs.push(new Uint8Array([e.length]), e);
-            }
-            bs.push(new Uint8Array([0]));
-            const tl = bs.reduce((s, b) => s + b.length, 0);
-            const r = new Uint8Array(tl);
-            let o = 0;
-            for (const b of bs) { r.set(b, o); o += b.length; }
-            return r;
-        };
-        const qn = encD(dm);
-        const qy = new Uint8Array(12 + qn.length + 4);
-        const qv = new DataView(qy.buffer);
-        qv.setUint16(0, Math.floor(Math.random() * 65535));
-        qv.setUint16(2, 0x0100);
-        qv.setUint16(4, 1);
-        qy.set(qn, 12);
-        qv.setUint16(12 + qn.length, qt);
-        qv.setUint16(12 + qn.length + 2, 1);
-        const rs = await fetch('https://cloudflare-dns.com/dns-query', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/dns-message', 'Accept': 'application/dns-message' },
-            body: qy
-        });
-        if (!rs.ok) return [];
-        const bf = new Uint8Array(await rs.arrayBuffer());
-        const dv = new DataView(bf.buffer);
-        const qdc = dv.getUint16(4);
-        const anc = dv.getUint16(6);
-        const pDm = (p) => {
-            const ls = [];
-            let cp = p, jmp = false, ep = -1, sf = 128;
-            while (cp < bf.length && sf-- > 0) {
-                const l = bf[cp];
-                if (l === 0) { if (!jmp) ep = cp + 1; break; }
-                if ((l & 0xC0) === 0xC0) {
-                    if (!jmp) ep = cp + 2;
-                    cp = ((l & 0x3F) << 8) | bf[cp + 1];
-                    jmp = true;
-                    continue;
-                }
-                ls.push(new TextDecoder().decode(bf.slice(cp + 1, cp + 1 + l)));
-                cp += l + 1;
-            }
-            if (ep === -1) ep = cp + 1;
-            return [ls.join('.'), ep];
-        };
-        let of = 12;
-        for (let i = 0; i < qdc; i++) {
-            const [, e] = pDm(of);
-            of = e + 4;
-        }
-        const aws = [];
-        for (let i = 0; i < anc && of < bf.length; i++) {
-            const [n, ne] = pDm(of);
-            of = ne;
-            const tp = dv.getUint16(of); of += 2;
-            of += 2;
-            const tl = dv.getUint32(of); of += 4;
-            const rl = dv.getUint16(of); of += 2;
-            const rd = bf.slice(of, of + rl);
-            of += rl;
-            aws.push({ n, tp, rd });
-        }
-        return aws;
-    } catch (e) { return []; }
-}
-
-async function fEchC(h) {
-    try {
-        const aws = await fDnsB(h, 'HTTPS');
-        for (const a of aws) {
-            if (a.tp !== 65 || !a.rd) continue;
-            const b = a.rd;
-            let o = 2;
-            while (o < b.length) {
-                if ((b[o] & 0xC0) === 0xC0) { o += 2; break; }
-                const l = b[o];
-                if (l === 0) { o++; break; }
-                o += l + 1;
-            }
-            while (o + 4 <= b.length) {
-                const k = (b[o] << 8) | b[o+1];
-                const l = (b[o+2] << 8) | b[o+3];
-                o += 4;
-                if (k === 5) {
-                    const chunk = b.slice(o, o + l);
-                    let bin = '';
-                    for(let i=0; i<chunk.length; i++) bin += String.fromCharCode(chunk[i]);
-                    return btoa(bin);
-                }
-                o += l;
-            }
-        }
-        return '';
-    } catch { return ''; }
 }
 
 async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
@@ -483,7 +375,7 @@ async function resolveAddressAndPort(proxyIPStr, targetHost, UUID) {
             }
             if (addr.includes('.william')) {
                 try {
-                    let txtRecords = await qDoH(addr, 'TXT');
+                    let txtRecords = await queryDoH(addr, 'TXT');
                     let txtData = txtRecords.filter(r => r.type === 16).map(r => r.data);
                     if (txtData.length > 0) {
                         let data = txtData[0];
@@ -979,101 +871,108 @@ async function handleWSRequest(request, yourUUID, url, proxyCtx) {
 	return new Response(null, { status: 101, webSocket: clientSock });
 }
 
-function pClsC(y, u, e, eS) {
-    let r = y.replace(/mode:\s*Rule\b/gi, 'mode: rule');
-    if (!e) return r;
-    const fRx = new RegExp(`(password|uuid):\\s*["']?${u}["']?(?=\\s*[,}])`, 'gi');
-    r = r.replace(fRx, `$1: ${u}, client-fingerprint: chrome, ech-opts: {enable: true, pq-signature-schemes-enabled: true, query-server-name: ${eS}}`);
-    const bRx = new RegExp(`^(\\s*)(password|uuid):\\s*["']?${u}["']?(?=\\s*$)`, 'gmi');
-    r = r.replace(bRx, `$1$2: ${u}\n$1client-fingerprint: chrome\n$1ech-opts:\n$1  enable: true\n$1  pq-signature-schemes-enabled: true\n$1  query-server-name: ${eS}`);
-    return r;
+function patchClashConfig(clashYaml, configJson) {
+    let yamlStr = clashYaml.replace(/mode:\s*Rule\b/g, 'mode: rule');
+    return yamlStr;
 }
 
-async function pSbxC(o, c) {
-    let f;
-    try {
-        f = JSON.parse(o.replace(/1\.1\.1\.1/g, '8.8.8.8').replace(/1\.0\.0\.1/g, '8.8.4.4'));
-    } catch (e) {
-        return o;
-    }
-    try {
-        const rd = new Map();
-        const pr = (r, isD) => {
-            if (!Array.isArray(r)) return;
-            r.forEach(x => {
-                if (x.geosite) {
-                    const gl = Array.isArray(x.geosite) ? x.geosite : [x.geosite];
-                    x.rule_set = gl.map(n => {
-                        const t = `geosite-${n}`;
-                        if (!rd.has(t)) rd.set(t, { tag: t, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${n}.srs`, download_detour: "DIRECT" });
-                        return t;
-                    });
-                    delete x.geosite;
+async function patchSingboxConfig(sOriSub, cJson) {
+	const fingerprint = "chrome";
+	const sbJsonText = sOriSub.replace('1.1.1.1', '8.8.8.8').replace('1.0.0.1', '8.8.4.4');
+	try {
+		let config = JSON.parse(sbJsonText);
+		if (Array.isArray(config.inbounds)) {
+			config.inbounds.forEach(inbound => {
+				if (inbound.type === 'tun') {
+					const addresses = [];
+					if (inbound.inet4_address) addresses.push(inbound.inet4_address);
+					if (inbound.inet6_address) addresses.push(inbound.inet6_address);
+					if (addresses.length > 0) { inbound.address = addresses; delete inbound.inet4_address; delete inbound.inet6_address; }
+					const route_addresses = [];
+					if (Array.isArray(inbound.inet4_route_address)) route_addresses.push(...inbound.inet4_route_address);
+					if (Array.isArray(inbound.inet6_route_address)) route_addresses.push(...inbound.inet6_route_address);
+					if (route_addresses.length > 0) { inbound.route_address = route_addresses; delete inbound.inet4_route_address; delete inbound.inet6_route_address; }
+					const route_exclude_addresses = [];
+					if (Array.isArray(inbound.inet4_route_exclude_address)) route_exclude_addresses.push(...inbound.inet4_route_exclude_address);
+					if (Array.isArray(inbound.inet6_route_exclude_address)) route_exclude_addresses.push(...inbound.inet6_route_exclude_address);
+					if (route_exclude_addresses.length > 0) { inbound.route_exclude_address = route_exclude_addresses; delete inbound.inet4_route_exclude_address; delete inbound.inet6_route_exclude_address; }
+				}
+			});
+		}
+		const ruleSetsDefinitions = new Map();
+		const processRules = (rules, isDns = false) => {
+			if (!Array.isArray(rules)) return;
+			rules.forEach(rule => {
+				if (rule.geosite) {
+					const geositeList = Array.isArray(rule.geosite) ? rule.geosite : [rule.geosite];
+					rule.rule_set = geositeList.map(name => {
+						const tag = `geosite-${name}`;
+						if (!ruleSetsDefinitions.has(tag)) ruleSetsDefinitions.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-${name}.srs`, download_detour: "DIRECT" });
+						return tag;
+					});
+					delete rule.geosite;
+				}
+				if (rule.geoip) {
+					const geoipList = Array.isArray(rule.geoip) ? rule.geoip : [rule.geoip];
+					rule.rule_set = rule.rule_set || [];
+					geoipList.forEach(name => {
+						const tag = `geoip-${name}`;
+						if (!ruleSetsDefinitions.has(tag)) ruleSetsDefinitions.set(tag, { tag: tag, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${name}.srs`, download_detour: "DIRECT" });
+						rule.rule_set.push(tag);
+					});
+					delete rule.geoip;
+				}
+				const targetField = isDns ? 'server' : 'outbound';
+				const actionValue = String(rule[targetField]).toUpperCase();
+				if (actionValue === 'REJECT' || actionValue === 'BLOCK') { rule.action = 'reject'; rule.method = 'drop'; delete rule[targetField]; }
+			});
+		};
+		if (config.dns && config.dns.rules) processRules(config.dns.rules, true);
+		if (config.route && config.route.rules) processRules(config.route.rules, false);
+		if (ruleSetsDefinitions.size > 0) { if (!config.route) config.route = {}; config.route.rule_set = Array.from(ruleSetsDefinitions.values()); }
+		
+		if (!Array.isArray(config.outbounds)) config.outbounds = [];
+		config.outbounds = config.outbounds.filter(o => o && o.tag !== 'REJECT' && o.tag !== 'block');
+		
+		const existingOutboundTags = new Set(config.outbounds.map(o => o.tag));
+		if (!existingOutboundTags.has('DIRECT')) { config.outbounds.push({ "type": "direct", "tag": "DIRECT" }); existingOutboundTags.add('DIRECT'); }
+		
+		if (config.dns && Array.isArray(config.dns.servers)) {
+			const dnsServerTags = new Set(config.dns.servers.map(s => s.tag));
+			if (Array.isArray(config.dns.rules)) {
+				config.dns.rules.forEach(rule => {
+					if (rule.server && !dnsServerTags.has(rule.server)) {
+						if (rule.server === 'dns_block' && dnsServerTags.has('block')) rule.server = 'block';
+						else if (rule.server.toLowerCase().includes('block') && !dnsServerTags.has(rule.server)) { config.dns.servers.push({ "tag": rule.server, "address": "rcode://success" }); dnsServerTags.add(rule.server); }
+					}
+				});
+			}
+		}
+		
+		config.outbounds.forEach(outbound => {
+			if (outbound.type === 'selector' || outbound.type === 'urltest') {
+				if (Array.isArray(outbound.outbounds)) {
+					outbound.outbounds = outbound.outbounds.filter(tag => { const upperTag = tag.toUpperCase(); return existingOutboundTags.has(tag) && upperTag !== 'REJECT' && upperTag !== 'BLOCK'; });
+					if (outbound.outbounds.length === 0) outbound.outbounds.push("DIRECT");
+				}
+			}
+		});
+
+        config.outbounds.forEach(outbound => {
+            if (outbound && (outbound.type === 'vless' || outbound.type === 'trojan' || outbound.type === 'vmess' || outbound.type === 'shadowsocks')) {
+                if (typeof outbound.tls !== 'object' || outbound.tls === null) {
+                    outbound.tls = { enabled: true };
+                } else {
+                    outbound.tls.enabled = true;
                 }
-                if (x.geoip) {
-                    const gi = Array.isArray(x.geoip) ? x.geoip : [x.geoip];
-                    x.rule_set = x.rule_set || [];
-                    gi.forEach(n => {
-                        const t = `geoip-${n}`;
-                        if (!rd.has(t)) rd.set(t, { tag: t, type: "remote", format: "binary", url: `https://gh.090227.xyz/https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-${n}.srs`, download_detour: "DIRECT" });
-                        x.rule_set.push(t);
-                    });
-                    delete x.geoip;
-                }
-                const tf = isD ? 'server' : 'outbound';
-                const av = String(x[tf]).toUpperCase();
-                if (av === 'REJECT' || av === 'BLOCK') { x.action = 'reject'; x.method = 'drop'; delete x[tf]; }
-            });
-        };
-        if (f.dns && f.dns.rules) pr(f.dns.rules, true);
-        if (f.route && f.route.rules) pr(f.route.rules, false);
-        if (rd.size > 0) { if (!f.route) f.route = {}; f.route.rule_set = Array.from(rd.values()); }
-        if (!Array.isArray(f.outbounds)) f.outbounds = [];
-        f.outbounds = f.outbounds.filter(b => b && b.tag !== 'REJECT' && b.tag !== 'block');
-        const et = new Set(f.outbounds.map(b => b.tag));
-        if (!et.has('DIRECT')) { f.outbounds.push({ "type": "direct", "tag": "DIRECT" }); et.add('DIRECT'); }
-        if (f.dns && Array.isArray(f.dns.servers)) {
-            const ds = new Set(f.dns.servers.map(s => s.tag));
-            if (Array.isArray(f.dns.rules)) {
-                f.dns.rules.forEach(r => {
-                    if (r.server && !ds.has(r.server)) {
-                        if (r.server === 'dns_block' && ds.has('block')) r.server = 'block';
-                        else if (r.server.toLowerCase().includes('block') && !ds.has(r.server)) { f.dns.servers.push({ "tag": r.server, "address": "rcode://success" }); ds.add(r.server); }
-                    }
-                });
-            }
-        }
-        f.outbounds.forEach(ob => {
-            if (ob.type === 'selector' || ob.type === 'urltest') {
-                if (Array.isArray(ob.outbounds)) {
-                    ob.outbounds = ob.outbounds.filter(t => { const ut = t.toUpperCase(); return et.has(t) && ut !== 'REJECT' && ut !== 'BLOCK'; });
-                    if (ob.outbounds.length === 0) ob.outbounds.push("DIRECT");
-                }
+                outbound.tls.utls = { enabled: true, fingerprint: fingerprint };
             }
         });
-    } catch(e) {}
 
-    try {
-        let ec = '';
-        if (c.ech && c.echSni) ec = await fEchC(c.echSni);
-        if (Array.isArray(f.outbounds)) {
-            f.outbounds.forEach(ob => {
-                if (ob && ['vless', 'trojan', 'vmess', 'shadowsocks'].includes(ob.type)) {
-                    if (!ob.tls || typeof ob.tls !== 'object') ob.tls = {};
-                    ob.tls.enabled = true;
-                    ob.tls.utls = { enabled: true, fingerprint: "chrome" };
-                    if (c.ech) {
-                        if (!ob.tls.ech || typeof ob.tls.ech !== 'object') ob.tls.ech = {};
-                        ob.tls.ech.enabled = true;
-                        ob.tls.ech.pq_signature_schemes_enabled = true;
-                        if (ec) ob.tls.ech.config = [ec];
-                    }
-                }
-            });
-        }
-    } catch(e) {}
-    
-    return JSON.stringify(f, null, 2);
+		return JSON.stringify(config, null, 2);
+	} catch (e) { 
+        return JSON.stringify(JSON.parse(sbJsonText), null, 2); 
+    }
 }
 
 async function genSurgeConfig(u, url) {
@@ -1109,14 +1008,13 @@ function genConfig(u, url) {
     if (!u) return '';
     const ep = encodeURIComponent('/?ed=2560');
     const links = [];
-    const echP = ech ? `&ech=${encodeURIComponent(echSni)}` : '';
     if (ev) {
         const hd = 'vless';
         links.push(...yx.map(item => {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
             const tps = `type=ws&path=${ep}`;
-            return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}${echP}&tfo=1#${encodeURIComponent('Vless-' + ipData.displayName)}`;
+            return `${hd}://${u}@${ipData.hostname}:${ipData.port}?encryption=none&security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Vless-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
     if (et) {
@@ -1125,7 +1023,7 @@ function genConfig(u, url) {
             const ipData = IPParser.parsePreferredIP(item);
             if (!ipData) return null;
             const tps = `type=ws&path=${ep}`;
-            return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}${echP}&tfo=1#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
+            return `${hd}://${password}@${ipData.hostname}:${ipData.port}?security=tls&sni=${url}&fp=chrome&${tps}&host=${url}&tfo=1#${encodeURIComponent('Trojan-' + ipData.displayName)}`;
         }).filter(Boolean));
     }
     return links.join('\n');
@@ -1141,14 +1039,14 @@ async function sub(req) {
     if (target === 'clash' || target === 'singbox') {
         const backend = cc?.dyhd || dyhd;
         const config = cc?.dypz || dypz;
-        const rawSubUrl = `https://${host}/${uid}?t=${Date.now()}`;
+        const rawSubUrl = `https://${host}/${uid}`;
         const subApi = `${backend}?target=${target}&url=${encodeURIComponent(rawSubUrl)}&config=${encodeURIComponent(config)}&emoji=true&scv=false`;
         try {
             const res = await fetch(subApi, { headers: { 'User-Agent': 'Subconverter edge' }});
             if (res.ok) {
                 let content = await res.text();
-                if (target === 'clash') content = pClsC(content, uid, ech, echSni);
-                if (target === 'singbox') content = await pSbxC(content, { uid, host, ech, echSni });
+                if (target === 'clash') content = patchClashConfig(content, { uid, host });
+                if (target === 'singbox') content = await patchSingboxConfig(content, { uid, host });
                 return ResponseBuilder.text(content);
             }
         } catch(e) {}
@@ -1517,7 +1415,7 @@ async function handleInit(req, env) {
     if (!UUIDUtils.isValidUUID(uuid)) return ResponseBuilder.html('UUID无效', 400);
     await sP(env, password);
     await sU(env, uuid);
-    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath, null, null, null, null, null, true, null, false, 'cloudflare-ech.com');
+    await saveConfigToKV(env, yx, fdc, uuid, null, null, null, loginPath, null, null, null, null, null, true, null);
     uid = uuid;
     const newToken = await signToken(env, Date.now() + SESSION_DURATION);
     return ResponseBuilder.redirect(`${base}/${loginPath}`, 302, { 'Set-Cookie': setSessionCookie(newToken) });
@@ -1708,8 +1606,6 @@ async function handleAdminSave(req, env) {
         const loginPath = form.get('login_path') || 'login';
         const peVal = form.get('panel_enabled') === 'on';
         const newProxyUrl = form.get('proxy_url') || 'https://docs.github.com';
-        const pEch = form.get('ech') === 'on';
-        const pEchSni = form.get('ech_sni') || 'cloudflare-ech.com';
         if (u && !UUIDUtils.isValidUUID(u)) return ResponseBuilder.text('UUID无效', 400);
         const cfipArr = uniqueIPList(cfipList.split('\n').map(x => x.trim()).filter(Boolean));
         const fdipArr = uniqueIPList(fdipList.split('\n').map(x => x.trim()).filter(Boolean));
@@ -1733,10 +1629,10 @@ async function handleAdminSave(req, env) {
         const protocolCfg = { ev: protocolEv, et: protocolEt, tp: protocolTp };
         const cfCfg = { accountId: cfAccountId, apiToken: cfApiToken };
         const proxyCfg = { enabled: proxyEnabled, type: proxyType, account: proxyAccount, global: proxyMode === 'global', whitelist:[] };
-        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, peVal, newProxyUrl, pEch, pEchSni);
+        await saveConfigToKV(env, cfipArr, fdipArr, u, protocolCfg, cfCfg, proxyCfg, loginPath, formDyhd, formDypz, surgeT, formDns, peVal, newProxyUrl);
         yx = cfipArr; fdc = fdipArr; dyhd = formDyhd; dypz = formDypz; stp = surgeT; dns = formDns || dns; proxyUrl = newProxyUrl;
         if (u) uid = u;
-        ev = protocolEv; et = protocolEt; tp = protocolTp; pe = peVal; ech = pEch; echSni = pEchSni;
+        ev = protocolEv; et = protocolEt; tp = protocolTp; pe = peVal;
         protocolConfig = { ev, et, tp };
         const host = req.headers.get('Host');
         if (req.headers.get('Accept') === 'application/json') return ResponseBuilder.json({ success: true });
@@ -1956,22 +1852,6 @@ document.addEventListener('DOMContentLoaded', () => {
                      <div class="form-group">
                         <label>修改后台密码</label>
                         <input type="password" name="new_password" placeholder="留空保持不变">
-                    </div>
-                </div>
-            </div>
-            
-            <div class="card">
-                <h3><i class="fas fa-lock" style="color:#3b82f6"></i> ECH (Encrypted Client Hello)</h3>
-                <div class="grid-2">
-                    <div class="form-group">
-                        <label>启用 ECH</label>
-                        <div style="display:flex; gap:2rem; margin-top:0.5rem; background:rgba(255,255,255,0.03); padding:1rem; border-radius:0.5rem; align-items:center;">
-                            <label class="toggle-switch" style="margin:0"><input type="checkbox" name="ech" ${cc?.ech ? 'checked' : ''}> ECH</label>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>ECH SNI (例如 cloudflare-ech.com)</label>
-                        <input type="text" name="ech_sni" value="${cc?.echSni || 'cloudflare-ech.com'}" placeholder="cloudflare-ech.com">
                     </div>
                 </div>
             </div>
@@ -2278,7 +2158,7 @@ async function zxyx(request, env, txt = 'ADD.txt') {
                 const action = url.searchParams.get('action') || 'save';
                 if (!data.ips || !Array.isArray(data.ips)) return new Response(JSON.stringify({ error: 'Invalid IP list' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
                 let currentConfig = await env.SJ.get(K_SETTINGS, 'json');
-                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, ech: ech, echSni: echSni, klp: 'login' };
+                if (!currentConfig) currentConfig = { yx: yx, fdc: fdc, uid: uid, dyhd: dyhd, dypz: dypz, dns: dns, protocolConfig: { ev, et, tp }, cfConfig: {}, proxyConfig: {}, transConfig: { ech: false, ech_sni: '' }, klp: 'login' };
                 if (action === 'replace-cf' || action === 'append-cf') {
                     if (data.ips.length > 0 && data.ips.join('\n').length > 24 * 1024 * 1024) return new Response(JSON.stringify({ error: '内容过大' }), { status: 400, headers: { 'Content-Type': 'application/json' }});
                     if (action === 'replace-cf') {
